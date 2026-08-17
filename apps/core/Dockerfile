@@ -26,6 +26,9 @@ COPY apps/core/pyproject.toml apps/core/uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev
 
 COPY apps/core/src ./src
+# Миграции нужны в образе: сервис `migrate` из docker-compose запускает
+# `aerich upgrade` этим же образом.
+COPY apps/core/migrations ./migrations
 RUN uv sync --frozen --no-dev
 
 # Процессу не нужны права записи в собственные файлы. Отдельный пользователь

@@ -54,6 +54,8 @@ src_folder = "./src"
 line-length = 100
 target-version = "py313"
 src = ["src", "tests"]
+# Миграции генерирует aerich — форматировать и линтовать чужой вывод незачем.
+extend-exclude = ["migrations"]
 
 [tool.ruff.lint]
 select = [

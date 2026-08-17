@@ -16,11 +16,16 @@ x-core-image: &core-image
   build:
     context: .
     dockerfile: apps/core/Dockerfile
-  depends_on:
-    postgres:
-      condition: service_healthy
-    redis:
-      condition: service_healthy
+
+# Сервисы приложения ждут не только живых Postgres и Redis, но и завершения
+# миграций: подниматься на несовпадающей схеме бессмысленно.
+x-core-depends-on: &core-depends-on
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  migrate:
+    condition: service_completed_successfully
 
 x-core-env: &core-env
   ENVIRONMENT: ${ENVIRONMENT:-local}
@@ -36,9 +41,6 @@ x-core-env: &core-env
   # флагом не поднимется — проверка в navigator.config.
   MOCK_AUTH: ${MOCK_AUTH:-true}
   MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
-  # Пока нет ни одной миграции aerich, схема создаётся из моделей. Убрать, как
-  # только появится первая миграция (домен users).
-  DB_GENERATE_SCHEMAS: ${DB_GENERATE_SCHEMAS:-true}
   CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
 
 services:
@@ -81,9 +83,23 @@ services:
       retries: 10
     networks: [navigator]
 
+  migrate:
+    <<: *core-image
+    # Разовый шаг: приводит схему к состоянию моделей и завершается. Отдельным
+    # сервисом, а не в entrypoint приложения, чтобы миграции выполнялись один
+    # раз, а не в каждом контейнере при масштабировании.
+    command: ["aerich", "upgrade"]
+    environment: *core-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [navigator]
+
   core-api:
     <<: *core-image
     environment: *core-env
+    depends_on: *core-depends-on
     ports:
       - "127.0.0.1:${CORE_API_PORT:-8000}:8000"
     networks: [navigator]
@@ -95,6 +111,7 @@ services:
     command:
       ["celery", "-A", "navigator.worker.celery_app:app", "worker", "--loglevel=info"]
     environment: *core-env
+    depends_on: *core-depends-on
     healthcheck:
       # CMD-SHELL, а не CMD: имя воркера складывается из $HOSTNAME контейнера,
       # а в exec-форме подстановки переменных не происходит.
@@ -123,6 +140,7 @@ services:
         "--schedule=/tmp/celerybeat-schedule",
       ]
     environment: *core-env
+    depends_on: *core-depends-on
     networks: [navigator]
 
   ai-gateway:
