@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from navigator.domains.users.router import router as users_router
+
 api_router = APIRouter(prefix="/api/v1")
 
-# Домены подключаются здесь по мере готовности вертикальных срезов, например:
-#
-#     from navigator.domains.users.router import router as users_router
-#     api_router.include_router(users_router)
+api_router.include_router(users_router)
+
+# Остальные домены подключаются здесь по мере готовности вертикальных срезов.

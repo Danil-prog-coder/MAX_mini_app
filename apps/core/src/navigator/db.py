@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 #
 # Каждый вертикальный срез добавляет сюда ровно одну строку вида
 # "navigator.domains.<домен>.models" — и вместе с ней миграцию aerich.
-DOMAIN_MODEL_MODULES: tuple[str, ...] = ()
+DOMAIN_MODEL_MODULES: tuple[str, ...] = ("navigator.domains.users.models",)
 
 
 def build_tortoise_config(settings: Settings) -> dict[str, Any]:

@@ -18,6 +18,7 @@ from navigator.cache import close_redis
 from navigator.config import Settings, get_settings
 from navigator.db import register_db
 from navigator.logging import configure_logging, get_logger
+from navigator.platform import build_verifier
 
 log = get_logger(__name__)
 
@@ -50,8 +51,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     configure_logging(settings)
     _warn_about_development_modes(settings)
+    # Способ опознания создаётся на старте: конфигурация без токена должна
+    # ломать запуск, а не первый запрос пользователя.
+    verifier = build_verifier(settings)
+    app.state.init_data_verifier = verifier
     async with register_db(app, settings):
-        log.info("core_api_started", environment=settings.environment.value, version=__version__)
+        log.info(
+            "core_api_started",
+            environment=settings.environment.value,
+            auth=verifier.name,
+            version=__version__,
+        )
         try:
             yield
         finally:

@@ -5,15 +5,19 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any, Final
 
+import httpx
 import pytest
+from tortoise import Tortoise, connections
 
+from navigator.api.app import create_app
 from navigator.cache import check_redis, close_redis
 from navigator.config import Settings, get_settings
 from navigator.db import check_db, close_db, init_db
+from navigator.platform.initdata import MOCK_USER_HEADER
 
 #: Корень исходников пакета — нужен архитектурным проверкам.
 SRC_ROOT: Final = Path(__file__).resolve().parents[1] / "src"
@@ -106,10 +110,14 @@ def integration_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
     monkeypatch.setenv("REDIS_URL", redis_url)
     # Миграций aerich ещё нет: схема тестовой базы создаётся из моделей.
     monkeypatch.setenv("DB_GENERATE_SCHEMAS", "true")
+    # Токена бота нет, поэтому проверка подписи не соберётся и приложение не
+    # поднимется — ровно то поведение, которое нужно в production, и ровно то,
+    # что мешает здесь. Локальный запуск идёт через MOCK_AUTH (тех. ТЗ 9.3).
+    monkeypatch.setenv("MOCK_AUTH", "true")
 
     get_settings.cache_clear()
     try:
-        settings = get_settings()
+        settings: Settings = get_settings()
         reason = _unavailable_reason(settings)
         if reason is not None:
             pytest.skip(
@@ -121,3 +129,40 @@ def integration_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
         yield settings
     finally:
         get_settings.cache_clear()
+
+
+async def reset_database() -> None:
+    """Очищает все таблицы перед тестом.
+
+    TRUNCATE ... CASCADE одним запросом, а не удаление по моделям: так не нужно
+    угадывать порядок внешних ключей, и он не поедет при добавлении доменов.
+    """
+    # `_meta` — единственный способ узнать имя таблицы: публичного API у
+    # Tortoise для этого нет.
+    tables = ", ".join(f'"{model._meta.db_table}"' for model in Tortoise.apps["models"].values())
+    if not tables:
+        return
+    await connections.get("default").execute_script(
+        f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE"
+    )
+
+
+@pytest.fixture
+async def api_client(integration_settings: Settings) -> AsyncIterator[httpx.AsyncClient]:
+    """Клиент к поднятому Core API с чистой базой.
+
+    Lifespan запускается по-настоящему: так проверяется и подключение к базе,
+    и сборка способа опознания на старте.
+    """
+    app = create_app(integration_settings)
+    async with app.router.lifespan_context(app):
+        await reset_database()
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            yield client
+
+
+def as_user(max_user_id: str) -> dict[str, str]:
+    """Заголовки запроса от имени пользователя в режиме MOCK_AUTH."""
+    return {MOCK_USER_HEADER: max_user_id}
