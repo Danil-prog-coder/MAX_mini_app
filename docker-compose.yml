@@ -1,0 +1,192 @@
+# Локальный запуск всей системы одной командой (тех. ТЗ 9.3).
+#
+#     cp .env.example .env && docker compose up --build
+#
+# Продовый деплой не настраивается, пока нет сервера и домена, поэтому здесь
+# сознательно: dev-сервер Vite вместо nginx, MOCK_AUTH включён, схема БД
+# создаётся из моделей, порты Postgres и Redis открыты на localhost для psql
+# и redis-cli.
+#
+# Значения берутся из `.env`, если он есть; иначе действуют значения по
+# умолчанию, указанные ниже и совпадающие с `.env.example`.
+
+name: navigator
+
+x-core-image: &core-image
+  build:
+    context: .
+    dockerfile: apps/core/Dockerfile
+
+# Сервисы приложения ждут не только живых Postgres и Redis, но и завершения
+# миграций: подниматься на несовпадающей схеме бессмысленно.
+x-core-depends-on: &core-depends-on
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  migrate:
+    condition: service_completed_successfully
+
+x-core-env: &core-env
+  ENVIRONMENT: ${ENVIRONMENT:-local}
+  DEBUG: ${DEBUG:-true}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgres://${POSTGRES_USER:-navigator}:${POSTGRES_PASSWORD:-navigator}@postgres:5432/${POSTGRES_DB:-navigator}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  AI_GATEWAY_URL: http://ai-gateway:8100
+  # Только для локального запуска: подпись initData не проверяется, пользователь
+  # опознаётся заголовком X-Max-User-Id (тех. ТЗ 9.3). В production сервис с этим
+  # флагом не поднимется — проверка в navigator.config.
+  MOCK_AUTH: ${MOCK_AUTH:-true}
+  MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+  CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-navigator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-navigator}
+      POSTGRES_DB: ${POSTGRES_DB:-navigator}
+    # Порт открыт только на localhost: база нужна разработчику из psql,
+    # но не всей сети.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Создаёт базу <POSTGRES_DB>_test для интеграционных тестов (тех. ТЗ 7).
+      # Выполняется только при пустом томе, то есть при первом запуске.
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-navigator} -d ${POSTGRES_DB:-navigator}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [navigator]
+
+  redis:
+    image: redis:7-alpine
+    # appendonly — чтобы поставленные в очередь задачи Celery переживали
+    # перезапуск контейнера.
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [navigator]
+
+  migrate:
+    <<: *core-image
+    # Разовый шаг: приводит схему к состоянию моделей и завершается. Отдельным
+    # сервисом, а не в entrypoint приложения, чтобы миграции выполнялись один
+    # раз, а не в каждом контейнере при масштабировании.
+    command: ["aerich", "upgrade"]
+    environment: *core-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [navigator]
+
+  core-api:
+    <<: *core-image
+    environment: *core-env
+    depends_on: *core-depends-on
+    ports:
+      - "127.0.0.1:${CORE_API_PORT:-8000}:8000"
+    networks: [navigator]
+
+  worker:
+    <<: *core-image
+    # Тот же образ, отдельный процесс: подвисший внешний запрос не должен
+    # деградировать ответы пользователям (тех. ТЗ 1.3).
+    command:
+      ["celery", "-A", "navigator.worker.celery_app:app", "worker", "--loglevel=info"]
+    environment: *core-env
+    depends_on: *core-depends-on
+    healthcheck:
+      # CMD-SHELL, а не CMD: имя воркера складывается из $HOSTNAME контейнера,
+      # а в exec-форме подстановки переменных не происходит.
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A navigator.worker.celery_app:app inspect ping -d celery@$$HOSTNAME",
+        ]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    networks: [navigator]
+
+  beat:
+    <<: *core-image
+    # Планировщик — отдельным контейнером и ровно в одном экземпляре: два beat
+    # поставят каждую задачу дважды.
+    command:
+      [
+        "celery",
+        "-A",
+        "navigator.worker.celery_app:app",
+        "beat",
+        "--loglevel=info",
+        "--schedule=/tmp/celerybeat-schedule",
+      ]
+    environment: *core-env
+    depends_on: *core-depends-on
+    networks: [navigator]
+
+  ai-gateway:
+    build:
+      context: .
+      dockerfile: apps/ai-gateway/Dockerfile
+    # Портов наружу нет: сервис внутренний (тех. ТЗ 5). Изнутри доступен как
+    # http://ai-gateway:8100, проверить — `docker compose exec core-api python -c ...`.
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: redis://redis:6379/3
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-20}
+      LLM_CACHE_TTL_SECONDS: ${LLM_CACHE_TTL_SECONDS:-300}
+      YANDEX_GPT_API_KEY: ${YANDEX_GPT_API_KEY:-}
+      YANDEX_GPT_FOLDER_ID: ${YANDEX_GPT_FOLDER_ID:-}
+      GIGACHAT_API_KEY: ${GIGACHAT_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [navigator]
+
+  miniapp:
+    build:
+      context: .
+      dockerfile: apps/miniapp/Dockerfile
+      target: dev
+    environment:
+      # Адрес Core API с точки зрения браузера, а не docker-сети.
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:${CORE_API_PORT:-8000}}
+      VITE_MOCK_MAX_USER_ID: ${VITE_MOCK_MAX_USER_ID:-mock-user-1}
+    ports:
+      - "127.0.0.1:${MINIAPP_PORT:-5173}:5173"
+    volumes:
+      # Исходники смонтированы для HMR, node_modules остаются из образа:
+      # они собраны под линукс и структуру pnpm-workspace.
+      - ./apps/miniapp:/repo/apps/miniapp
+      - /repo/apps/miniapp/node_modules
+    networks: [navigator]
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  navigator:
+    driver: bridge
