@@ -82,3 +82,11 @@ export function BellIcon({ size = 17, className }: IconProps) {
     </svg>
   );
 }
+
+export function PlusIcon({ size = 19, className }: IconProps) {
+  return (
+    <svg {...svgProps(size)} className={className}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}

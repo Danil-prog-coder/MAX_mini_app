@@ -116,6 +116,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/schedule/deadlines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Добавить личный дедлайн
+         * @description Личный дедлайн с напоминанием за сутки (ТЗ 4.5, 4.6).
+         */
+        post: operations["add_deadline_api_v1_schedule_deadlines_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/schedule/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Группы вуза
+         * @description Список групп, из которого пользователь выбирает свою (ТЗ 4.3).
+         */
+        get: operations["read_groups_api_v1_schedule_groups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/schedule/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Привязка расписания
+         * @description Сохраняет привязку к группе (ТЗ 4.3, 4.4).
+         *
+         *     Имя эндпоинта — из тех. ТЗ 3.5, где привязкой была ссылка на
+         *     ical/Moodle-календарь. Уточнение У13 оставило только выбор группы, но
+         *     эндпоинт тот же: он проверяет группу по справочнику и пишет её в профиль.
+         *
+         *     Отвечает названием группы, а не профилем: профиль — чужой домен, и его
+         *     схему этот роутер импортировать не вправе (тех. ТЗ 1.1). Фронт после
+         *     успешного ответа перечитывает профиль сам.
+         */
+        post: operations["bind_source_api_v1_schedule_source_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/schedule/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Сводка на сегодня
+         * @description Пары на сегодня и ближайшие личные дедлайны (ТЗ 4.4).
+         */
+        get: operations["read_today_api_v1_schedule_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tracker": {
         parameters: {
             query?: never;
@@ -416,11 +504,44 @@ export interface components {
             text: string;
         };
         /**
+         * BindGroupIn
+         * @description Привязка расписания — только выбор группы из списка (уточнение У13).
+         */
+        BindGroupIn: {
+            /** Group Name */
+            group_name: string;
+        };
+        /**
          * Chance
          * @description Метка шанса. Подпись, точки и эмодзи рисует интерфейс (уточнение Д1).
          * @enum {string}
          */
         Chance: "high" | "borderline" | "unlikely";
+        /**
+         * DeadlineIn
+         * @description Личный дедлайн (ТЗ 4.5).
+         */
+        DeadlineIn: {
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Title */
+            title: string;
+        };
+        /** DeadlineOut */
+        DeadlineOut: {
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+        };
         /** DependencyStatus */
         DependencyStatus: {
             /** Error */
@@ -482,10 +603,39 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** GroupOut */
+        GroupOut: {
+            /** Name */
+            name: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * LessonOut
+         * @description Пара в расписании на сегодня (макет, экран 11).
+         */
+        LessonOut: {
+            /**
+             * Ends At
+             * Format: time
+             */
+            ends_at: string;
+            /** Is Now */
+            is_now: boolean;
+            /** Kind */
+            kind: string;
+            /** Room */
+            room: string;
+            /**
+             * Starts At
+             * Format: time
+             */
+            starts_at: string;
+            /** Title */
+            title: string;
         };
         /** LivenessResponse */
         LivenessResponse: {
@@ -716,6 +866,23 @@ export interface components {
             saved_to_profile: boolean;
             /** Top Directions */
             top_directions: components["schemas"]["DirectionMatchOut"][];
+        };
+        /**
+         * TodayOut
+         * @description Сводка на сегодня (ТЗ 4.4).
+         */
+        TodayOut: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Deadlines */
+            deadlines: components["schemas"]["DeadlineOut"][];
+            /** Group Name */
+            group_name: string | null;
+            /** Lessons */
+            lessons: components["schemas"]["LessonOut"][];
         };
         /** TrackIn */
         TrackIn: {
@@ -1056,6 +1223,145 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    add_deadline_api_v1_schedule_deadlines_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeadlineIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadlineOut"];
+                };
+            };
+            /** @description Нужен статус «Студент» и заполненный вуз */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Пустое название или невозможная дата */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    read_groups_api_v1_schedule_groups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupOut"][];
+                };
+            };
+            /** @description Нужен статус «Студент» и заполненный вуз */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    bind_source_api_v1_schedule_source_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BindGroupIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupOut"];
+                };
+            };
+            /** @description Нужен статус «Студент» и заполненный вуз */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Такой группы нет в справочнике вуза */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_today_api_v1_schedule_today_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayOut"];
+                };
+            };
+            /** @description Нужен статус «Студент» и заполненный вуз */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
