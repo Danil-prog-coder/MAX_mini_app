@@ -41,6 +41,7 @@ __all__ = [
     "get_by_id",
     "get_or_create",
     "get_university",
+    "get_university_or_none",
     "list_universities",
     "sync_universities",
     "update_profile",
@@ -229,6 +230,11 @@ async def add_points(user: User, amount: int) -> int:
 async def list_universities() -> list[University]:
     """Справочник вузов для выбора в профиле."""
     return await University.all()
+
+
+async def get_university_or_none(university_id: int) -> University | None:
+    """Вуз или `None`. Для вызывающих, у которых отсутствие вуза — не ошибка."""
+    return await University.get_or_none(id=university_id)
 
 
 async def get_university(university_id: int) -> University:
