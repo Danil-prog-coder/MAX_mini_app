@@ -363,7 +363,22 @@ interface StubState {
   positions: Map<number, number[]>;
   deadlines: { id: number; title: string; due_date: string }[];
   questions: StubQuestion[];
+  checkedInToday: boolean;
+  rewards: Set<string>;
 }
+
+/** Награды с ценами уточнения У23. */
+export const REWARDS = [
+  { code: 'question_priority', title: 'Приоритет показа вопроса', price: 300 },
+  { code: 'profile_badge', title: 'Бейдж в профиле', price: 500 },
+];
+
+/** Рейтинг за неделю. Вуза в нём нет и быть не должно (уточнение У19). */
+export const LEADERBOARD = [
+  { place: 1, display_name: 'Кирилл М.', points: 1480, has_title: true, mine: false },
+  { place: 2, display_name: 'Мария Л.', points: 1190, has_title: false, mine: false },
+  { place: 3, display_name: 'Даниил П.', points: 980, has_title: false, mine: false },
+];
 
 /** Права считает сервер (решение Р19) — заглушка повторяет ту же функцию. */
 function accessOf(profile: typeof PROFILE) {
@@ -553,6 +568,74 @@ function response(method: string, path: string, body: unknown, state: StubState)
     return { total: items.length, items };
   }
 
+  if (method === 'GET' && path === '/api/v1/gamification/me') {
+    return {
+      balance: state.profile.points_balance,
+      checked_in_today: state.checkedInToday,
+      title: null,
+      rewards: REWARDS.map((reward) => ({ ...reward, owned: state.rewards.has(reward.code) })),
+      history: [],
+    };
+  }
+
+  if (method === 'GET' && path === '/api/v1/gamification/leaderboard') {
+    const mine = {
+      place: LEADERBOARD.length + 1,
+      display_name: state.profile.display_name,
+      points: state.profile.points_balance,
+      has_title: false,
+      mine: true,
+    };
+    return { rows: [...LEADERBOARD, mine], me: mine, to_next_place: 60 };
+  }
+
+  if (method === 'POST' && path === '/api/v1/gamification/checkin') {
+    const granted = !state.checkedInToday;
+    if (granted) {
+      state.checkedInToday = true;
+      state.profile.points_balance += 10;
+    }
+    return {
+      granted,
+      balance: state.profile.points_balance,
+      day: todayIso(),
+    };
+  }
+
+  const reward = /^\/api\/v1\/gamification\/rewards\/([\w-]+)$/.exec(path);
+  if (method === 'POST' && reward) {
+    const code = reward[1] ?? '';
+    const found = REWARDS.find((item) => item.code === code);
+    if (found === undefined) return undefined;
+    if (state.rewards.has(code)) {
+      return {
+        code,
+        bought: false,
+        already: true,
+        not_enough: false,
+        balance: state.profile.points_balance,
+      };
+    }
+    if (state.profile.points_balance < found.price) {
+      return {
+        code,
+        bought: false,
+        already: false,
+        not_enough: true,
+        balance: state.profile.points_balance,
+      };
+    }
+    state.rewards.add(code);
+    state.profile.points_balance -= found.price;
+    return {
+      code,
+      bought: true,
+      already: false,
+      not_enough: false,
+      balance: state.profile.points_balance,
+    };
+  }
+
   if (method === 'GET' && path === '/api/v1/mentor-qa/topics') return TOPICS;
 
   if (method === 'GET' && path === '/api/v1/mentor-qa/questions') {
@@ -700,6 +783,8 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
     positions: new Map<number, number[]>(),
     deadlines: [],
     questions: options.questions ?? [SEEDED_QUESTION],
+    checkedInToday: false,
+    rewards: new Set<string>(),
   };
 
   await page.route('**/api/v1/**', async (route: Route) => {

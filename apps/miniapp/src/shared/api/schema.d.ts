@@ -116,6 +116,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/gamification/checkin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ежедневный чек-ин
+         * @description Чек-ин: +10 один раз в сутки (уточнение У21).
+         *
+         *     Повтор — не ошибка: `granted=false` означает «сегодня уже отмечались», и
+         *     экран показывает это словами, а не сообщением о сбое.
+         */
+        post: operations["checkin_api_v1_gamification_checkin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/gamification/leaderboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Рейтинг активности
+         * @description Рейтинг за неделю (ТЗ 6.2, 6.3). Один на всю площадку (уточнение У19).
+         */
+        get: operations["read_leaderboard_api_v1_gamification_leaderboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/gamification/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Баллы, история, статус и награды
+         * @description Всё, что показывает экран рейтинга про самого пользователя (ТЗ 6.2, 6.7).
+         */
+        get: operations["read_me_api_v1_gamification_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/gamification/rewards/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Обменять баллы
+         * @description Списывает баллы за награду (ТЗ 6.7, уточнение У23).
+         *
+         *     Нехватка баллов — не ошибка, а состояние: ответ говорит `not_enough`, и
+         *     кнопка показывает «Не хватает баллов», как в макете.
+         */
+        post: operations["buy_reward_api_v1_gamification_rewards__code__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mentor-qa/answers/{answer_id}/like": {
         parameters: {
             query?: never;
@@ -655,6 +741,18 @@ export interface components {
          * @enum {string}
          */
         Chance: "high" | "borderline" | "unlikely";
+        /** CheckInOut */
+        CheckInOut: {
+            /** Balance */
+            balance: number;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Granted */
+            granted: boolean;
+        };
         /**
          * DeadlineIn
          * @description Личный дедлайн (ТЗ 4.5).
@@ -784,6 +882,27 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** LeaderboardOut */
+        LeaderboardOut: {
+            me: components["schemas"]["LeaderboardRowOut"] | null;
+            /** Rows */
+            rows: components["schemas"]["LeaderboardRowOut"][];
+            /** To Next Place */
+            to_next_place: number | null;
+        };
+        /** LeaderboardRowOut */
+        LeaderboardRowOut: {
+            /** Display Name */
+            display_name: string;
+            /** Has Title */
+            has_title: boolean;
+            /** Mine */
+            mine: boolean;
+            /** Place */
+            place: number;
+            /** Points */
+            points: number;
+        };
         /**
          * LessonOut
          * @description Пара в расписании на сегодня (макет, экран 11).
@@ -850,6 +969,21 @@ export interface components {
             items: components["schemas"]["MatchOut"][];
             /** Total */
             total: number;
+        };
+        /**
+         * MeOut
+         * @description Баллы, история, статус и награды (тех. ТЗ 3.7).
+         */
+        MeOut: {
+            /** Balance */
+            balance: number;
+            /** Checked In Today */
+            checked_in_today: boolean;
+            /** History */
+            history: components["schemas"]["TransactionOut"][];
+            /** Rewards */
+            rewards: components["schemas"]["RewardOut"][];
+            title: components["schemas"]["TitleOut"] | null;
         };
         /**
          * ModerationStatus
@@ -1008,6 +1142,30 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** RewardOut */
+        RewardOut: {
+            /** Code */
+            code: string;
+            /** Owned */
+            owned: boolean;
+            /** Price */
+            price: number;
+            /** Title */
+            title: string;
+        };
+        /** RewardResultOut */
+        RewardResultOut: {
+            /** Already */
+            already: boolean;
+            /** Balance */
+            balance: number;
+            /** Bought */
+            bought: boolean;
+            /** Code */
+            code: string;
+            /** Not Enough */
+            not_enough: boolean;
+        };
         /**
          * SavedResultOut
          * @description Ответ на «Сохранить в профиль» (ТЗ 1.6).
@@ -1073,6 +1231,23 @@ export interface components {
             saved_to_profile: boolean;
             /** Top Directions */
             top_directions: components["schemas"]["DirectionMatchOut"][];
+        };
+        /**
+         * TitleOut
+         * @description Статус месяца (ТЗ 6.4, уточнение У24).
+         */
+        TitleOut: {
+            /** Mine */
+            mine: boolean;
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /** Name */
+            name: string;
+            /** Points */
+            points: number;
         };
         /**
          * TodayOut
@@ -1147,6 +1322,20 @@ export interface components {
             id: number;
             /** Short Name */
             short_name: string;
+        };
+        /** TransactionOut */
+        TransactionOut: {
+            /** Amount */
+            amount: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Reason */
+            reason: string;
+            /** Subject */
+            subject: string;
         };
         /**
          * UniversityBriefOut
@@ -1425,6 +1614,104 @@ export interface operations {
                 };
             };
             /** @description Направления с таким кодом нет */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    checkin_api_v1_gamification_checkin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckInOut"];
+                };
+            };
+        };
+    };
+    read_leaderboard_api_v1_gamification_leaderboard_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaderboardOut"];
+                };
+            };
+        };
+    };
+    read_me_api_v1_gamification_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeOut"];
+                };
+            };
+        };
+    };
+    buy_reward_api_v1_gamification_rewards__code__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RewardResultOut"];
+                };
+            };
+            /** @description Награды с таким кодом не существует */
             404: {
                 headers: {
                     [name: string]: unknown;
