@@ -8,6 +8,7 @@ import re
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any, Final
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -86,6 +87,53 @@ def _unavailable_reason(settings: Settings) -> str | None:
     return None
 
 
+#: Схема тестовой базы пересоздаётся один раз за прогон, а не перед каждым тестом.
+_schema_prepared = False
+
+
+def _recreate_test_schema(settings: Settings) -> None:
+    """Сносит таблицы тестовой базы, чтобы схема собралась под текущие модели.
+
+    Схема тестовой базы строится из моделей (`DB_GENERATE_SCHEMAS`), а
+    `generate_schemas(safe=True)` только досоздаёт недостающие таблицы: колонку,
+    добавленную в модель, он в существующую таблицу не внесёт. Без этого шага
+    после каждой правки моделей тесты падали бы с «column ... does not exist»,
+    пока разработчик не догадается удалить базу руками.
+
+    Удаляются только таблицы наших моделей, и только в базе, имя которой
+    заканчивается на `_test` (решение Р23): промахнуться конфигурацией и снести
+    базу разработки этим нельзя.
+    """
+    global _schema_prepared
+    if _schema_prepared:
+        return
+
+    database = urlsplit(settings.database_url).path.lstrip("/")
+    if not database.endswith("_test"):
+        raise RuntimeError(
+            f"TEST_DATABASE_URL указывает на базу {database!r}, а не на *_test — "
+            f"пересоздание схемы отменено, чтобы не снести базу разработки. "
+            f"Тесты идут в отдельную базу с суффиксом _test (CONTRIBUTING, решение Р23)"
+        )
+
+    async def recreate() -> None:
+        # Схему на этом шаге не генерируем: её создаст старт приложения.
+        await init_db(settings.model_copy(update={"db_generate_schemas": False}))
+        try:
+            tables = ", ".join(
+                f'"{model._meta.db_table}"' for model in Tortoise.apps["models"].values()
+            )
+            if tables:
+                await connections.get("default").execute_script(
+                    f"DROP TABLE IF EXISTS {tables} CASCADE"
+                )
+        finally:
+            await close_db()
+
+    asyncio.run(recreate())
+    _schema_prepared = True
+
+
 @pytest.fixture
 def integration_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
     """Настройки для тестов, которым нужны настоящие Postgres и Redis.
@@ -108,7 +156,9 @@ def integration_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("REDIS_URL", redis_url)
-    # Миграций aerich ещё нет: схема тестовой базы создаётся из моделей.
+    # Схема тестовой базы создаётся из моделей, а не прогоном миграций: тесты
+    # не должны зависеть от истории миграций и от CLI aerich. Цена известна и
+    # записана в CONTRIBUTING: забытую миграцию тесты не поймают.
     monkeypatch.setenv("DB_GENERATE_SCHEMAS", "true")
     # Токена бота нет, поэтому проверка подписи не соберётся и приложение не
     # поднимется — ровно то поведение, которое нужно в production, и ровно то,
@@ -126,6 +176,7 @@ def integration_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
                 f"адреса переопределяются в TEST_DATABASE_URL и TEST_REDIS_URL "
                 f"(сейчас: {redact_password(database_url)}, {redact_password(redis_url)})"
             )
+        _recreate_test_schema(settings)
         yield settings
     finally:
         get_settings.cache_clear()
