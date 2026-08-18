@@ -21,13 +21,56 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
 };
 
+export const UNIVERSITIES = [
+  {
+    id: 1,
+    name: 'Московский государственный университет',
+    short_name: 'МГУ',
+    city: 'Москва',
+    address: 'Ленинские горы, 1',
+    latitude: 55.7,
+    longitude: 37.53,
+    budget_places: 120,
+    tuition_price: 498000,
+    has_dormitory: true,
+    admission_deadline: '2026-07-25',
+    demo_fields: ['budget_places', 'tuition_price', 'has_dormitory', 'admission_deadline'],
+  },
+];
+
+/**
+ * Профиль студента с вузом — стартовое состояние заглушки.
+ *
+ * Именно студент, а не абитуриент по умолчанию: обход всех роутов требует,
+ * чтобы каждый адрес показывал **свой** экран, а закрытые разделы 4 и 7
+ * уводят абитуриента на гейт. Тесты гейта просят абитуриента явно.
+ */
+export const STUDENT_PROFILE = {
+  status: 'student',
+  university: UNIVERSITIES[0] ?? null,
+};
+
+/** Абитуриент без вуза: разделы 4 и 7 для него закрыты (ТЗ 4.2, 7.2). */
+export const APPLICANT_PROFILE = {
+  status: 'applicant',
+  university: null,
+};
+
+/** Группы вуза — как их отдаёт настоящий API (ТЗ 4.3, уточнение У13). */
+export const GROUPS = [
+  { name: 'ИС-231' },
+  { name: 'ИС-232' },
+  { name: 'ПД-204' },
+  { name: 'ПМ-211' },
+];
+
 export const PROFILE = {
   max_user_id: 'e2e-user',
   display_name: 'Артём',
   needs_display_name: false,
-  status: 'applicant',
-  university: null,
-  group_name: null,
+  status: 'student',
+  university: UNIVERSITIES[0] as (typeof UNIVERSITIES)[number] | null,
+  group_name: null as string | null,
   is_verified_student: false,
   points_balance: 540,
   access: { schedule: false, food: false, answer_questions: false },
@@ -221,12 +264,68 @@ const WEEKDAYS = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'];
 const MIN_POSITION = 1;
 const MAX_POSITION = 9999;
 
-/** Состояние заглушки: баллы, трекер и история позиций переживают запросы. */
+/** Пары на сегодня — день группы ИС-231 из макета, экран 11. */
+export const LESSONS = [
+  {
+    starts_at: '09:00',
+    ends_at: '10:30',
+    title: 'Базы данных',
+    room: '312',
+    kind: 'лекция',
+    is_now: true,
+  },
+  {
+    starts_at: '10:40',
+    ends_at: '12:10',
+    title: 'Дискретная математика',
+    room: '118',
+    kind: 'семинар',
+    is_now: false,
+  },
+  {
+    starts_at: '12:20',
+    ends_at: '13:50',
+    title: 'Проектирование интерфейсов',
+    room: '405',
+    kind: 'практика',
+    is_now: false,
+  },
+  {
+    starts_at: '14:10',
+    ends_at: '15:40',
+    title: 'Иностранный язык',
+    room: '207',
+    kind: 'семинар',
+    is_now: false,
+  },
+];
+
+/** Состояние заглушки: профиль, баллы, трекер, позиции и дедлайны. */
 interface StubState {
+  profile: typeof PROFILE;
   scores: Record<string, number>;
   tracked: Set<number>;
   /** Введённые места по вузу, от старых к новым. */
   positions: Map<number, number[]>;
+  deadlines: { id: number; title: string; due_date: string }[];
+}
+
+/** Права считает сервер (решение Р19) — заглушка повторяет ту же функцию. */
+function accessOf(profile: typeof PROFILE) {
+  const isStudent = profile.status === 'student' && profile.university !== null;
+  return {
+    schedule: isStudent,
+    food: isStudent,
+    answer_questions: isStudent && profile.is_verified_student,
+  };
+}
+
+function withAccess(profile: typeof PROFILE) {
+  return { ...profile, access: accessOf(profile) };
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function trackedDirection(universityId: number) {
@@ -278,9 +377,70 @@ function positionsBody(universityId: number, state: StubState) {
   };
 }
 
+/** Раздел закрыт по статусу: заглушка отвечает 403, как настоящий API. */
+const FORBIDDEN = Symbol('forbidden');
+
 /** Что отдавать на какой путь. Ключ — метод и путь без строки запроса. */
 function response(method: string, path: string, body: unknown, state: StubState): unknown {
-  if (method === 'GET' && path === '/api/v1/users/me') return PROFILE;
+  if (method === 'GET' && path === '/api/v1/users/me') return withAccess(state.profile);
+  if (method === 'PATCH' && path === '/api/v1/users/me') {
+    const patch = body as {
+      status?: string;
+      university_id?: number;
+      group_name?: string;
+      display_name?: string;
+    };
+    if (patch.status !== undefined) state.profile.status = patch.status;
+    if (patch.display_name !== undefined) {
+      state.profile.display_name = patch.display_name;
+      // Настоящий API пересчитывает признак: имя введено — строка ввода уходит.
+      state.profile.needs_display_name = patch.display_name === '';
+    }
+    if (patch.university_id !== undefined) {
+      state.profile.university =
+        UNIVERSITIES.find((item) => item.id === patch.university_id) ?? null;
+    }
+    if (patch.group_name !== undefined) state.profile.group_name = patch.group_name;
+    return withAccess(state.profile);
+  }
+  if (method === 'POST' && path === '/api/v1/users/me/verification') {
+    state.profile.is_verified_student = true;
+    return withAccess(state.profile);
+  }
+  if (method === 'GET' && path === '/api/v1/universities') return UNIVERSITIES;
+
+  if (path.startsWith('/api/v1/schedule')) {
+    // Гейт ТЗ 4.2 отвечает 403 на весь раздел, а не только прячет пункт меню.
+    if (!accessOf(state.profile).schedule) return FORBIDDEN;
+    if (method === 'GET' && path === '/api/v1/schedule/groups') return GROUPS;
+    if (method === 'POST' && path === '/api/v1/schedule/source') {
+      const name = (body as { group_name?: string }).group_name ?? '';
+      if (!GROUPS.some((group) => group.name === name)) return undefined;
+      state.profile.group_name = name;
+      return { name };
+    }
+    if (method === 'GET' && path === '/api/v1/schedule/today') {
+      return {
+        day: todayIso(),
+        group_name: state.profile.group_name,
+        lessons: state.profile.group_name === null ? [] : LESSONS,
+        deadlines: state.deadlines,
+      };
+    }
+    if (method === 'POST' && path === '/api/v1/schedule/deadlines') {
+      const payload = body as { title?: string; due_date?: string };
+      if (!payload.title?.trim() || payload.due_date === undefined) return undefined;
+      const deadline = {
+        id: state.deadlines.length + 1,
+        title: payload.title.trim(),
+        due_date: payload.due_date,
+      };
+      state.deadlines = [...state.deadlines, deadline].sort((a, b) =>
+        a.due_date.localeCompare(b.due_date),
+      );
+      return deadline;
+    }
+  }
   if (method === 'GET' && path === '/api/v1/career-test/questions') return QUESTIONS;
   if (method === 'GET' && path === '/api/v1/career-test/results/latest') return TEST_RESULT;
   if (method === 'GET' && path === '/api/v1/career-test/vacancies') return VACANCIES;
@@ -391,15 +551,21 @@ const DEFAULT_TRACKED = [1];
 export interface StubOptions {
   /** Идентификаторы вузов в трекере на старте теста. */
   readonly tracked?: readonly number[];
+  /** Чем отличается стартовый профиль от `PROFILE`. */
+  readonly profile?: Partial<typeof PROFILE>;
 }
 
 export async function installApiStub(page: Page, options: StubOptions = {}): Promise<void> {
   // Состояние своё на каждый тест: иначе отслеженный вуз из одного теста
   // влиял бы на надпись кнопки в другом.
   const state: StubState = {
+    // Копия, а не сам объект: тест, сделавший себя студентом, не должен
+    // менять стартовый профиль следующего.
+    profile: { ...PROFILE, ...options.profile },
     scores: {},
     tracked: new Set<number>(options.tracked ?? DEFAULT_TRACKED),
     positions: new Map<number, number[]>(),
+    deadlines: [],
   };
 
   await page.route('**/api/v1/**', async (route: Route) => {
@@ -412,8 +578,17 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
     }
 
     const path = new URL(request.url()).pathname;
-    const payload = request.method() === 'POST' ? safeJson(request.postData()) : undefined;
+    const hasBody = request.method() === 'POST' || request.method() === 'PATCH';
+    const payload = hasBody ? safeJson(request.postData()) : undefined;
     const body = response(request.method(), path, payload, state);
+    if (body === FORBIDDEN) {
+      await route.fulfill({
+        status: 403,
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ detail: 'нужен статус «Студент» и заполненный вуз' }),
+      });
+      return;
+    }
     if (body === undefined) {
       // Неизвестный путь — честный 404 с телом ошибки: так ведёт себя и
       // настоящий API, а экран покажет пустое состояние, а не сбой сети.
