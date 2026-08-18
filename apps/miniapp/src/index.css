@@ -124,6 +124,10 @@
    * `transform` — они не триггерят layout и считаются на GPU (тех. ТЗ 8.5).
    */
   --animate-screen-in: nv-in 0.34s cubic-bezier(0.3, 1, 0.4, 1);
+  /* Вход карточки списка: тот же сдвиг, короче — под stagger 50–60ms. */
+  --animate-card-in: nv-in 0.3s ease both;
+  /* Шторка выезжает снизу (хендофф, «Сквозной элемент: шторка»). */
+  --animate-sheet-in: nv-sheet 0.42s cubic-bezier(0.3, 1.05, 0.4, 1);
 
   @keyframes nv-in {
     from {
@@ -132,6 +136,15 @@
     }
     to {
       opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes nv-sheet {
+    from {
+      transform: translateY(101%);
+    }
+    to {
       transform: none;
     }
   }
@@ -201,5 +214,7 @@ p {
 @media (prefers-reduced-motion: reduce) {
   :root {
     --animate-screen-in: nv-fade 0.2s ease;
+    --animate-card-in: nv-fade 0.2s ease both;
+    --animate-sheet-in: nv-fade 0.2s ease;
   }
 }

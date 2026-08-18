@@ -10,6 +10,8 @@ import { render, screen, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
+import { withProviders } from '@/test/providers';
+
 import { buildRoutes } from './router';
 import { SCREENS } from './screens';
 
@@ -20,7 +22,9 @@ function tabbar() {
 
 function renderAt(pathname: string) {
   const router = createMemoryRouter(buildRoutes(), { initialEntries: [pathname] });
-  return render(<RouterProvider router={router} />);
+  // Экраны читают серверное состояние через TanStack Query: без провайдера
+  // они падают, и проверка кнопки «Главное меню» ничего не покажет.
+  return render(withProviders(<RouterProvider router={router} />));
 }
 
 describe('оболочка приложения', () => {

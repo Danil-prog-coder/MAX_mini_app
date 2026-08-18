@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { SCREENS } from '../../src/app/screens';
+import { installApiStub } from './apiStub';
 
 /**
  * Обязательный e2e (тех. ТЗ 9.5): обход **всех** зарегистрированных экранов с
@@ -46,6 +47,7 @@ for (const screen of SCREENS) {
     page,
   }) => {
     const errors = collectErrors(page);
+    await installApiStub(page);
 
     await page.goto(screen.e2ePath);
 
@@ -66,6 +68,7 @@ for (const screen of SCREENS) {
 }
 
 test('кнопка «Главное меню» возвращает в меню с любого экрана', async ({ page }) => {
+  await installApiStub(page);
   await page.goto('/tracker/1');
   await expect(page.locator('[data-screen-id]')).toHaveAttribute(
     'data-screen-id',
@@ -81,6 +84,7 @@ test('кнопка «Главное меню» возвращает в меню 
 test('возврат в меню работает с клавиатуры', async ({ page }) => {
   // ТЗ 0.2: на десктопном клиенте MAX интерфейс обязан работать с клавиатуры
   // наравне с мышью, а не только по нажатию пальцем.
+  await installApiStub(page);
   await page.goto('/support');
   await homeButton(page).focus();
   await page.keyboard.press('Enter');
@@ -89,6 +93,7 @@ test('возврат в меню работает с клавиатуры', asyn
 });
 
 test('переход в меню не считается тупиком: из меню открываются разделы', async ({ page }) => {
+  await installApiStub(page);
   await page.goto('/');
   await page.getByRole('link', { name: 'Профориентационный тест' }).click();
   await expect(page.locator('[data-screen-id]')).toHaveAttribute('data-screen-id', 'career-test');

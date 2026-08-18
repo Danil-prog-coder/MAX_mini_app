@@ -4,6 +4,118 @@
  */
 
 export interface paths {
+    "/api/v1/career-test/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Вопросы теста
+         * @description Десять вопросов с вариантами в порядке макета.
+         *
+         *     Опознание пользователя здесь не требуется по смыслу, но остаётся общим для
+         *     всего API: тест начинается сразу, без регистрации (уточнение У5).
+         */
+        get: operations["read_questions_api_v1_career_test_questions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/career-test/results/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Последний результат */
+        get: operations["read_latest_result_api_v1_career_test_results_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/career-test/results/{result_id}/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Сохранить результат в профиль
+         * @description Прикрепляет результат к профилю и начисляет +50 баллов (уточнение У21).
+         *
+         *     Эндпоинта нет в тех. ТЗ 3.2, потому что там результат сохраняется сразу при
+         *     отправке ответов. Кнопка «Сохранить в профиль» из продуктового ТЗ (п. 1.6)
+         *     требует отдельного действия — и именно за него начисляются баллы.
+         */
+        post: operations["save_result_api_v1_career_test_results__result_id__save_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/career-test/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Отправить ответы
+         * @description Считает топ-3 направления, просит объяснение у LLM и сохраняет результат.
+         *
+         *     Результат сохраняется сразу, но к профилю не прикрепляется: это делает
+         *     отдельная кнопка «Сохранить в профиль» (ТЗ 1.6).
+         */
+        post: operations["submit_api_v1_career_test_submit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/career-test/vacancies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Вакансии по профилю направления
+         * @description Число открытых вакансий по профессиям направления.
+         *
+         *     Данные из открытого API hh.ru с кэшем на шесть часов; если источник не
+         *     ответил, отдаются последние сохранённые числа с пометкой `stale`
+         *     (уточнение У14). Пустой список означает, что источник молчит и в кэше
+         *     ничего нет, — интерфейс скажет об этом прямо, а не покажет ноль вакансий.
+         */
+        get: operations["read_vacancies_api_v1_career_test_vacancies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/universities": {
         parameters: {
             query?: never;
@@ -114,6 +226,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AnswerOptionOut */
+        AnswerOptionOut: {
+            /** Id */
+            id: number;
+            /** Order */
+            order: number;
+            /** Text */
+            text: string;
+        };
         /** DependencyStatus */
         DependencyStatus: {
             /** Error */
@@ -122,6 +243,17 @@ export interface components {
             name: string;
             /** Ok */
             ok: boolean;
+        };
+        /** DirectionMatchOut */
+        DirectionMatchOut: {
+            /** Code */
+            code: string;
+            /** Match Percent */
+            match_percent: number;
+            /** Name */
+            name: string;
+            /** Summary */
+            summary: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -193,12 +325,62 @@ export interface components {
             /** University Id */
             university_id?: number | null;
         };
+        /** QuestionOut */
+        QuestionOut: {
+            /** Id */
+            id: number;
+            /** Options */
+            options: components["schemas"]["AnswerOptionOut"][];
+            /** Order */
+            order: number;
+            /** Text */
+            text: string;
+        };
         /** ReadinessResponse */
         ReadinessResponse: {
             /** Dependencies */
             dependencies: components["schemas"]["DependencyStatus"][];
             /** Status */
             status: string;
+        };
+        /**
+         * SavedResultOut
+         * @description Ответ на «Сохранить в профиль» (ТЗ 1.6).
+         */
+        SavedResultOut: {
+            /** Points Balance */
+            points_balance: number;
+            /** Points Granted */
+            points_granted: boolean;
+            result: components["schemas"]["TestResultOut"];
+        };
+        /**
+         * SubmitIn
+         * @description Ответы: по одному варианту на каждый вопрос теста.
+         */
+        SubmitIn: {
+            /** Option Ids */
+            option_ids: number[];
+        };
+        /** TestResultOut */
+        TestResultOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Explanation */
+            explanation: string;
+            /** Id */
+            id: number;
+            /** Profile */
+            profile: {
+                [key: string]: number;
+            };
+            /** Saved To Profile */
+            saved_to_profile: boolean;
+            /** Top Directions */
+            top_directions: components["schemas"]["DirectionMatchOut"][];
         };
         /** UniversityOut */
         UniversityOut: {
@@ -251,6 +433,27 @@ export interface components {
          * @enum {string}
          */
         UserStatus: "school" | "applicant" | "student";
+        /**
+         * VacanciesOut
+         * @description Вакансии по профилю направления (ТЗ 1.5, уточнение У14).
+         */
+        VacanciesOut: {
+            /** Direction */
+            direction: string;
+            /** Items */
+            items: components["schemas"]["VacancyCountOut"][];
+            /** Source */
+            source: string;
+            /** Stale */
+            stale: boolean;
+        };
+        /** VacancyCountOut */
+        VacancyCountOut: {
+            /** Count */
+            count: number;
+            /** Title */
+            title: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -273,6 +476,155 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    read_questions_api_v1_career_test_questions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionOut"][];
+                };
+            };
+        };
+    };
+    read_latest_result_api_v1_career_test_results_latest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResultOut"];
+                };
+            };
+            /** @description Тест ещё не пройден */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    save_result_api_v1_career_test_results__result_id__save_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                result_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedResultOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_api_v1_career_test_submit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResultOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_vacancies_api_v1_career_test_vacancies_get: {
+        parameters: {
+            query: {
+                direction: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VacanciesOut"];
+                };
+            };
+            /** @description Направления с таким кодом нет */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_universities_api_v1_universities_get: {
         parameters: {
             query?: never;
