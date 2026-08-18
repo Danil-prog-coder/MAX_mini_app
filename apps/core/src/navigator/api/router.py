@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from navigator.domains.career_test.router import router as career_test_router
+from navigator.domains.food.router import router as food_router
 from navigator.domains.gamification.router import router as gamification_router
 from navigator.domains.mentor_qa.router import router as mentor_qa_router
 from navigator.domains.schedule.router import router as schedule_router
@@ -27,5 +28,6 @@ api_router.include_router(tracker_router)
 api_router.include_router(schedule_router)
 api_router.include_router(mentor_qa_router)
 api_router.include_router(gamification_router)
+api_router.include_router(food_router)
 
 # Остальные домены подключаются здесь по мере готовности вертикальных срезов.
