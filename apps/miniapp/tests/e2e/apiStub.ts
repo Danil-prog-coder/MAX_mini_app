@@ -215,10 +215,67 @@ function matchesFor(scores: Record<string, number>, universityId?: number) {
     .sort((a, b) => chanceOrder(a.chance) - chanceOrder(b.chance) || b.gap - a.gap);
 }
 
-/** Состояние заглушки: баллы и трекер переживают запросы, как в настоящем API. */
+/** Подписи столбиков динамики за неделю — как их отдаёт настоящий API. */
+const WEEKDAYS = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'];
+
+const MIN_POSITION = 1;
+const MAX_POSITION = 9999;
+
+/** Состояние заглушки: баллы, трекер и история позиций переживают запросы. */
 interface StubState {
   scores: Record<string, number>;
   tracked: Set<number>;
+  /** Введённые места по вузу, от старых к новым. */
+  positions: Map<number, number[]>;
+}
+
+function trackedDirection(universityId: number) {
+  const program = PROGRAMS.find((item) => item.university === universityId);
+  if (program === undefined) return null;
+  return CATALOGUE_DIRECTIONS.find((item) => item.code === program.direction) ?? null;
+}
+
+function trackedBrief(universityId: number) {
+  const full = university(universityId);
+  if (full === null) return null;
+  return {
+    id: full.id,
+    short_name: full.short_name,
+    city: full.city,
+    admission_deadline: full.admission_deadline,
+  };
+}
+
+function positionsBody(universityId: number, state: StubState) {
+  const brief = trackedBrief(universityId);
+  if (brief === null) return undefined;
+  const history = state.positions.get(universityId) ?? [];
+  const position = history.at(-1) ?? null;
+  const previous = history.at(-2) ?? null;
+  // Все записи заглушки делаются «сегодня», поэтому занят один столбик недели.
+  const today = new Date().getDay();
+  const index = today === 0 ? 6 : today - 1;
+
+  return {
+    university: brief,
+    direction: trackedDirection(universityId),
+    position,
+    previous_position: previous,
+    improvement: position !== null && previous !== null ? previous - position : null,
+    estimated_passing_score: position === null ? null : 120,
+    checked_at: position === null ? null : new Date().toISOString(),
+    week: WEEKDAYS.map((weekday, at) => ({
+      weekday,
+      position: at === index ? position : null,
+    })),
+    history: history.map((value) => ({
+      position: value,
+      estimated_passing_score: 120,
+      checked_at: new Date().toISOString(),
+    })),
+    min_position: MIN_POSITION,
+    max_position: MAX_POSITION,
+  };
 }
 
 /** Что отдавать на какой путь. Ключ — метод и путь без строки запроса. */
@@ -266,6 +323,36 @@ function response(method: string, path: string, body: unknown, state: StubState)
     };
   }
 
+  if (method === 'GET' && path === '/api/v1/tracker') {
+    const items = [...state.tracked].flatMap((id) => {
+      const brief = trackedBrief(id);
+      if (brief === null) return [];
+      return [
+        {
+          university: brief,
+          direction: trackedDirection(id),
+          position: state.positions.get(id)?.at(-1) ?? null,
+        },
+      ];
+    });
+    return { total: items.length, items };
+  }
+
+  const positions = /^\/api\/v1\/tracker\/(\d+)\/positions$/.exec(path);
+  if (positions) {
+    const id = Number(positions[1]);
+    // Не отслеживаемый вуз — 404, как в настоящем API.
+    if (!state.tracked.has(id)) return undefined;
+    if (method === 'POST') {
+      const value = (body as { position?: number }).position;
+      if (typeof value !== 'number' || value < MIN_POSITION || value > MAX_POSITION) {
+        return undefined;
+      }
+      state.positions.set(id, [...(state.positions.get(id) ?? []), value]);
+    }
+    return positionsBody(id, state);
+  }
+
   const track = /^\/api\/v1\/vuz-selection\/track\/(\d+)$/.exec(path);
   if (method === 'POST' && track) {
     const id = Number(track[1]);
@@ -290,10 +377,30 @@ function scoresBody(scores: Record<string, number>) {
   };
 }
 
-export async function installApiStub(page: Page): Promise<void> {
+/**
+ * Вуз, отслеживаемый по умолчанию.
+ *
+ * Обход всех роутов ходит по адресу `/tracker/1` и требует, чтобы **каждый**
+ * экран отвечал без ошибок в консоли. Настоящий API на не отслеживаемый вуз
+ * честно отвечает 404, и браузер пишет это в консоль — значит, у заглушки по
+ * умолчанию один вуз в трекере уже есть. Тесты, которым нужен пустой трекер,
+ * говорят об этом явно: `installApiStub(page, { tracked: [] })`.
+ */
+const DEFAULT_TRACKED = [1];
+
+export interface StubOptions {
+  /** Идентификаторы вузов в трекере на старте теста. */
+  readonly tracked?: readonly number[];
+}
+
+export async function installApiStub(page: Page, options: StubOptions = {}): Promise<void> {
   // Состояние своё на каждый тест: иначе отслеженный вуз из одного теста
   // влиял бы на надпись кнопки в другом.
-  const state: StubState = { scores: {}, tracked: new Set<number>() };
+  const state: StubState = {
+    scores: {},
+    tracked: new Set<number>(options.tracked ?? DEFAULT_TRACKED),
+    positions: new Map<number, number[]>(),
+  };
 
   await page.route('**/api/v1/**', async (route: Route) => {
     const request = route.request();
