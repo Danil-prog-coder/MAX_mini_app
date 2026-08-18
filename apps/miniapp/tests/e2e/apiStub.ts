@@ -300,7 +300,61 @@ export const LESSONS = [
   },
 ];
 
-/** Состояние заглушки: профиль, баллы, трекер, позиции и дедлайны. */
+/** Темы вопросов — как их отдаёт настоящий API (ТЗ 5.2). */
+export const TOPICS = [
+  { code: 'admission', label: 'Поступление' },
+  { code: 'study', label: 'Учёба' },
+  { code: 'student_life', label: 'Студенческая жизнь' },
+];
+
+interface StubQuestion {
+  id: number;
+  topic: string;
+  topic_label: string;
+  text: string;
+  moderation_status: string;
+  moderation_reason: string;
+  mine: boolean;
+  university_id: number;
+  answers: {
+    id: number;
+    text: string;
+    author_name: string;
+    likes_count: number;
+    liked_by_me: boolean;
+    created_at: string;
+  }[];
+  created_at: string;
+}
+
+/** Один готовый вопрос в ленте: без него лента пуста на каждом обходе роутов. */
+export const SEEDED_QUESTION: StubQuestion = {
+  id: 1,
+  topic: 'admission',
+  topic_label: 'Поступление',
+  text: 'Сколько реально стоит жизнь в общежитии за месяц?',
+  moderation_status: 'published',
+  moderation_reason: '',
+  mine: false,
+  university_id: 1,
+  answers: [
+    {
+      id: 1,
+      text: 'Общежитие — около 900 ₽ в месяц, плюс еда. У меня выходит 9–11 тысяч.',
+      author_name: 'Марина',
+      likes_count: 24,
+      liked_by_me: false,
+      created_at: '2026-08-17T10:00:00Z',
+    },
+  ],
+  created_at: '2026-08-17T09:00:00Z',
+};
+
+/** Слова, на которых заглушка модерации отклоняет вопрос (уточнение У18). */
+const REJECT_WORDS = ['тупые', 'идиот'];
+const REVIEW_WORDS = ['куплю', 'продам', '@'];
+
+/** Состояние заглушки: профиль, баллы, трекер, позиции, дедлайны и лента. */
 interface StubState {
   profile: typeof PROFILE;
   scores: Record<string, number>;
@@ -308,6 +362,7 @@ interface StubState {
   /** Введённые места по вузу, от старых к новым. */
   positions: Map<number, number[]>;
   deadlines: { id: number; title: string; due_date: string }[];
+  questions: StubQuestion[];
 }
 
 /** Права считает сервер (решение Р19) — заглушка повторяет ту же функцию. */
@@ -498,6 +553,82 @@ function response(method: string, path: string, body: unknown, state: StubState)
     return { total: items.length, items };
   }
 
+  if (method === 'GET' && path === '/api/v1/mentor-qa/topics') return TOPICS;
+
+  if (method === 'GET' && path === '/api/v1/mentor-qa/questions') {
+    const items = state.questions;
+    return { total: items.length, items };
+  }
+
+  if (method === 'POST' && path === '/api/v1/mentor-qa/questions') {
+    const payload = body as { university_id?: number; topic?: string; text?: string };
+    const text = payload.text?.trim() ?? '';
+    const lowered = text.toLowerCase();
+    // Повторяет три исхода уточнения У18, чтобы экран проверялся целиком.
+    const status = REJECT_WORDS.some((word) => lowered.includes(word))
+      ? 'rejected'
+      : REVIEW_WORDS.some((word) => lowered.includes(word))
+        ? 'manual_review'
+        : 'published';
+    const topic = TOPICS.find((item) => item.code === payload.topic) ?? TOPICS[0];
+    const question: StubQuestion = {
+      id: state.questions.length + 100,
+      topic: topic?.code ?? 'admission',
+      topic_label: topic?.label ?? 'Поступление',
+      text,
+      moderation_status: status,
+      moderation_reason: status === 'published' ? '' : 'текст не прошёл проверку',
+      mine: true,
+      university_id: payload.university_id ?? 1,
+      answers: [],
+      created_at: new Date().toISOString(),
+    };
+    state.questions = [question, ...state.questions];
+    return {
+      id: question.id,
+      moderation_status: status,
+      published: status === 'published',
+      moderation_reason: question.moderation_reason,
+    };
+  }
+
+  const newAnswer = /^\/api\/v1\/mentor-qa\/questions\/(\d+)\/answers$/.exec(path);
+  if (method === 'POST' && newAnswer) {
+    const question = state.questions.find((item) => item.id === Number(newAnswer[1]));
+    if (question === undefined) return undefined;
+    if (!accessOf(state.profile).answer_questions) return FORBIDDEN;
+    const text = (body as { text?: string }).text?.trim() ?? '';
+    const answer = {
+      id: question.answers.length + 100,
+      text,
+      author_name: state.profile.display_name,
+      likes_count: 0,
+      liked_by_me: false,
+      created_at: new Date().toISOString(),
+    };
+    question.answers = [...question.answers, answer];
+    state.profile.points_balance += 25;
+    return {
+      id: answer.id,
+      text,
+      points_granted: true,
+      points_balance: state.profile.points_balance,
+    };
+  }
+
+  const like = /^\/api\/v1\/mentor-qa\/answers\/(\d+)\/like$/.exec(path);
+  if (method === 'POST' && like) {
+    const id = Number(like[1]);
+    for (const question of state.questions) {
+      const answer = question.answers.find((item) => item.id === id);
+      if (answer === undefined) continue;
+      answer.liked_by_me = !answer.liked_by_me;
+      answer.likes_count += answer.liked_by_me ? 1 : -1;
+      return { liked: answer.liked_by_me, likes_count: answer.likes_count };
+    }
+    return undefined;
+  }
+
   const positions = /^\/api\/v1\/tracker\/(\d+)\/positions$/.exec(path);
   if (positions) {
     const id = Number(positions[1]);
@@ -553,6 +684,8 @@ export interface StubOptions {
   readonly tracked?: readonly number[];
   /** Чем отличается стартовый профиль от `PROFILE`. */
   readonly profile?: Partial<typeof PROFILE>;
+  /** Что уже лежит в ленте вопросов на старте теста. */
+  readonly questions?: StubQuestion[];
 }
 
 export async function installApiStub(page: Page, options: StubOptions = {}): Promise<void> {
@@ -566,6 +699,7 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
     tracked: new Set<number>(options.tracked ?? DEFAULT_TRACKED),
     positions: new Map<number, number[]>(),
     deadlines: [],
+    questions: options.questions ?? [SEEDED_QUESTION],
   };
 
   await page.route('**/api/v1/**', async (route: Route) => {
