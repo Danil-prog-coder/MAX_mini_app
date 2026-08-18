@@ -35,6 +35,7 @@ class SeedReport:
     universities: users.CatalogueSync
     directions: vuz_selection.CatalogueSync
     questions: career_test.CatalogueSync
+    programs: vuz_selection.ProgramsSync
 
 
 async def seed() -> SeedReport:
@@ -47,6 +48,8 @@ async def seed() -> SeedReport:
             universities=await users.sync_universities(),
             directions=await vuz_selection.sync_directions(),
             questions=await career_test.sync_questions(),
+            # Программы заливаются последними: им нужны и вузы, и направления.
+            programs=await vuz_selection.sync_programs(settings),
         )
     finally:
         await close_db()
@@ -81,6 +84,18 @@ def main() -> None:
         updated=list(report.questions.updated),
         unchanged=report.questions.unchanged,
     )
+    log.info(
+        "admission_programs_synced",
+        created=report.programs.created,
+        updated=report.programs.updated,
+        unchanged=report.programs.unchanged,
+    )
+    if report.programs.skipped:
+        log.warning(
+            "admission_programs_skipped",
+            pairs=list(report.programs.skipped),
+            detail="источник знает вуз или направление, которых нет в справочнике",
+        )
     if report.questions.extra:
         log.warning(
             "career_test_questions_not_in_catalogue",
