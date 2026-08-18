@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 
 from tortoise.exceptions import IntegrityError
+from tortoise.expressions import F
 from tortoise.transactions import in_transaction
 
 from navigator.domains.users.catalogue import UNIVERSITIES, UniversityRecord
@@ -35,7 +36,9 @@ __all__ = [
     "VerificationNotAllowed",
     "access_for",
     "access_of",
+    "add_points",
     "confirm_student_verification",
+    "get_by_id",
     "get_or_create",
     "get_university",
     "list_universities",
@@ -199,6 +202,28 @@ async def confirm_student_verification(user: User) -> User:
     user.is_verified_student = True
     await user.save(update_fields=["is_verified_student"])
     return user
+
+
+async def get_by_id(user_id: int) -> User | None:
+    """Профиль по идентификатору. Нужен домену gamification для баланса."""
+    return await User.get_or_none(id=user_id)
+
+
+async def add_points(user: User, amount: int) -> int:
+    """Меняет баланс баллов и возвращает новое значение.
+
+    Инкремент делается запросом к базе (`F`), а не чтением-записью в Python:
+    два начисления подряд иначе затирают друг друга, а начисления приходят и
+    из запросов пользователя, и из фоновых задач.
+
+    Правила начисления живут в домене gamification (уточнение У21) — здесь
+    только само изменение баланса: баланс принадлежит профилю (ТЗ 1.3).
+    """
+    await User.filter(id=user.id).update(points_balance=F("points_balance") + amount)
+    fresh = await User.get(id=user.id)
+    # Объект в памяти вызывающего кода не должен остаться со старым числом.
+    user.points_balance = fresh.points_balance
+    return fresh.points_balance
 
 
 async def list_universities() -> list[University]:

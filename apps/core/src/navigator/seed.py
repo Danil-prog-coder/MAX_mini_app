@@ -16,22 +16,38 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 
 from navigator.config import get_settings
 from navigator.db import close_db, init_db
+from navigator.domains.career_test import service as career_test
 from navigator.domains.users import service as users
+from navigator.domains.vuz_selection import service as vuz_selection
 from navigator.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
 
 
-async def seed() -> users.CatalogueSync:
+@dataclass(frozen=True, slots=True)
+class SeedReport:
+    """Отчёты всех справочников за один запуск."""
+
+    universities: users.CatalogueSync
+    directions: vuz_selection.CatalogueSync
+    questions: career_test.CatalogueSync
+
+
+async def seed() -> SeedReport:
     """Заливает все справочники. Соединения открывает и закрывает сама."""
     settings = get_settings()
     configure_logging(settings)
     await init_db(settings)
     try:
-        return await users.sync_universities()
+        return SeedReport(
+            universities=await users.sync_universities(),
+            directions=await vuz_selection.sync_directions(),
+            questions=await career_test.sync_questions(),
+        )
     finally:
         await close_db()
 
@@ -40,16 +56,41 @@ def main() -> None:
     report = asyncio.run(seed())
     log.info(
         "universities_synced",
-        created=list(report.created),
-        updated=list(report.updated),
-        unchanged=report.unchanged,
+        created=list(report.universities.created),
+        updated=list(report.universities.updated),
+        unchanged=report.universities.unchanged,
     )
-    if report.extra:
-        # Не ошибка: вуз мог быть заведён руками или остаться от прежней версии
-        # справочника. Но знать об этом нужно — на него могут ссылаться профили.
+    log.info(
+        "directions_synced",
+        created=list(report.directions.created),
+        updated=list(report.directions.updated),
+        unchanged=report.directions.unchanged,
+    )
+    # Не ошибка: запись могла быть заведена руками или остаться от прежней
+    # версии справочника. Но знать об этом нужно — на неё могут ссылаться
+    # профили и сохранённые результаты теста.
+    if report.universities.extra:
         log.warning(
             "universities_not_in_catalogue",
-            names=list(report.extra),
+            names=list(report.universities.extra),
+            detail="есть в базе, но нет в справочнике; удаление — ручное решение",
+        )
+    log.info(
+        "career_test_questions_synced",
+        created=list(report.questions.created),
+        updated=list(report.questions.updated),
+        unchanged=report.questions.unchanged,
+    )
+    if report.questions.extra:
+        log.warning(
+            "career_test_questions_not_in_catalogue",
+            orders=list(report.questions.extra),
+            detail="есть в базе, но нет в справочнике; удаление — ручное решение",
+        )
+    if report.directions.extra:
+        log.warning(
+            "directions_not_in_catalogue",
+            codes=list(report.directions.extra),
             detail="есть в базе, но нет в справочнике; удаление — ручное решение",
         )
 

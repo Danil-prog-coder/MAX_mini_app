@@ -37,6 +37,8 @@ x-core-env: &core-env
   CELERY_BROKER_URL: redis://redis:6379/1
   CELERY_RESULT_BACKEND: redis://redis:6379/2
   AI_GATEWAY_URL: http://ai-gateway:8100
+  # hh | fixture — реализация источника вакансий (уточнения У3, У14).
+  SOURCE_VACANCIES: ${SOURCE_VACANCIES:-hh}
   # Только для локального запуска: подпись initData не проверяется, пользователь
   # опознаётся заголовком X-Max-User-Id (тех. ТЗ 9.3). В production сервис с этим
   # флагом не поднимется — проверка в navigator.config.
