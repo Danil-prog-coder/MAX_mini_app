@@ -188,6 +188,136 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vuz-selection/directions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Справочник направлений
+         * @description Направления с обязательными предметами: их показывает экран подбора.
+         */
+        get: operations["read_directions_api_v1_vuz_selection_directions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vuz-selection/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Вузы с метками шанса
+         * @description Список направлений в вузах, отсортированный по шансу (ТЗ 2.5).
+         *
+         *     Расчёт детерминированный и живёт в сервисном слое, а не в LLM: это
+         *     арифметика на исторических проходных баллах (тех. ТЗ 3.3).
+         */
+        get: operations["read_matches_api_v1_vuz_selection_matches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vuz-selection/scores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Сохранённые баллы ЕГЭ
+         * @description Баллы хранятся на сервере: они не должны расходиться между устройствами (ТЗ 0.2).
+         */
+        get: operations["read_scores_api_v1_vuz_selection_scores_get"];
+        put?: never;
+        /**
+         * Сохранить баллы ЕГЭ
+         * @description Заменяет набор баллов целиком: снятый предмет не должен влиять на выдачу.
+         */
+        post: operations["save_scores_api_v1_vuz_selection_scores_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vuz-selection/subjects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Предметы ЕГЭ и границы проверки
+         * @description Список предметов для мультивыбора (ТЗ 2.2) и границы балла (ТЗ 2.3).
+         */
+        get: operations["read_subjects_api_v1_vuz_selection_subjects_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vuz-selection/track/{university_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Отслеживать этот вуз
+         * @description Добавляет вуз в отслеживаемые (ТЗ 2.7). Повторное нажатие ничего не меняет.
+         */
+        post: operations["track_api_v1_vuz_selection_track__university_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vuz-selection/universities/{university_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Карточка вуза
+         * @description Бюджет, стоимость, общежитие, дата окончания приёма и шансы (ТЗ 2.6).
+         *
+         *     Отвечает и без введённых баллов: карточка открывается в том числе по
+         *     прямой ссылке, и тупика на ней быть не должно (ТЗ 1.1).
+         */
+        get: operations["read_university_card_api_v1_vuz_selection_universities__university_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -235,6 +365,12 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * Chance
+         * @description Метка шанса. Подпись, точки и эмодзи рисует интерфейс (уточнение Д1).
+         * @enum {string}
+         */
+        Chance: "high" | "borderline" | "unlikely";
         /** DependencyStatus */
         DependencyStatus: {
             /** Error */
@@ -255,6 +391,47 @@ export interface components {
             /** Summary */
             summary: string;
         };
+        /** DirectionOut */
+        DirectionOut: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Required Subjects */
+            required_subjects: string[];
+            /** Summary */
+            summary: string;
+        };
+        /**
+         * ExamScoresIn
+         * @description Баллы ЕГЭ: предмет → балл.
+         *
+         *     Диапазон проверяется и здесь, и в сервисном слое: схема даёт клиенту
+         *     внятную ошибку сразу, но источник истины — сервер (тех. ТЗ 8.7).
+         */
+        ExamScoresIn: {
+            /**
+             * Scores
+             * @description Балл от 0 до 100 по каждому предмету
+             */
+            scores: {
+                [key: string]: number;
+            };
+        };
+        /** ExamScoresOut */
+        ExamScoresOut: {
+            /**
+             * Min Subjects
+             * @default 3
+             */
+            min_subjects: number;
+            /** Scores */
+            scores: {
+                [key: string]: number;
+            };
+            /** Total */
+            total: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -266,6 +443,35 @@ export interface components {
             status: string;
             /** Version */
             version: string;
+        };
+        /**
+         * MatchOut
+         * @description Программа с меткой шанса (ТЗ 2.5, уточнения У11, У12, Д1).
+         */
+        MatchOut: {
+            /** Applicant Score */
+            applicant_score: number;
+            /** Budget Places */
+            budget_places: number;
+            chance: components["schemas"]["Chance"];
+            /**
+             * Demo Fields
+             * @description Поля с демонстрационными значениями, а не официальными данными
+             */
+            demo_fields?: string[];
+            direction: components["schemas"]["DirectionOut"];
+            /** Passing Score */
+            passing_score: number;
+            /** Program Id */
+            program_id: number;
+            university: components["schemas"]["UniversityBriefOut"];
+        };
+        /** MatchesOut */
+        MatchesOut: {
+            /** Items */
+            items: components["schemas"]["MatchOut"][];
+            /** Total */
+            total: number;
         };
         /**
          * ProfileAccessOut
@@ -355,6 +561,33 @@ export interface components {
             result: components["schemas"]["TestResultOut"];
         };
         /**
+         * SubjectsOut
+         * @description Список предметов и границы проверки — чтобы клиент их не выдумывал.
+         *
+         *     Экран подбора рисует ровно эти кнопки и проверяет ровно эти границы. Свой
+         *     список на клиенте разошёлся бы со справочником направлений в первый же раз,
+         *     когда справочник поменяется (ТЗ 2.2, 2.3).
+         */
+        SubjectsOut: {
+            /**
+             * Max Score
+             * @default 100
+             */
+            max_score: number;
+            /**
+             * Min Score
+             * @default 0
+             */
+            min_score: number;
+            /**
+             * Min Subjects
+             * @default 3
+             */
+            min_subjects: number;
+            /** Subjects */
+            subjects?: string[];
+        };
+        /**
          * SubmitIn
          * @description Ответы: по одному варианту на каждый вопрос теста.
          */
@@ -381,6 +614,60 @@ export interface components {
             saved_to_profile: boolean;
             /** Top Directions */
             top_directions: components["schemas"]["DirectionMatchOut"][];
+        };
+        /** TrackIn */
+        TrackIn: {
+            /** Direction */
+            direction?: string | null;
+        };
+        /** TrackedOut */
+        TrackedOut: {
+            direction: components["schemas"]["DirectionOut"] | null;
+            university: components["schemas"]["UniversityBriefOut"];
+        };
+        /**
+         * UniversityBriefOut
+         * @description Вуз в выдаче блока 2.
+         *
+         *     Своя схема, а не импорт из домена users: домены не импортируют схемы друг
+         *     друга (тех. ТЗ 1.1). Модель при этом общая — её отдаёт сервисный слой
+         *     users, и дублируется только форма ответа.
+         */
+        UniversityBriefOut: {
+            /** Address */
+            address: string;
+            /** Admission Deadline */
+            admission_deadline: string | null;
+            /** Budget Places */
+            budget_places: number | null;
+            /** City */
+            city: string;
+            /** Has Dormitory */
+            has_dormitory: boolean;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Short Name */
+            short_name: string;
+            /** Tuition Price */
+            tuition_price: number | null;
+        };
+        /**
+         * UniversityCardOut
+         * @description Карточка вуза (ТЗ 2.6, 2.7).
+         */
+        UniversityCardOut: {
+            /**
+             * Demo Fields
+             * @description Поля с демонстрационными значениями, а не официальными данными
+             */
+            demo_fields?: string[];
+            /** Programs */
+            programs: components["schemas"]["MatchOut"][];
+            /** Tracked */
+            tracked: boolean;
+            university: components["schemas"]["UniversityBriefOut"];
         };
         /** UniversityOut */
         UniversityOut: {
@@ -714,6 +1001,199 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProfileOut"];
+                };
+            };
+        };
+    };
+    read_directions_api_v1_vuz_selection_directions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectionOut"][];
+                };
+            };
+        };
+    };
+    read_matches_api_v1_vuz_selection_matches_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchesOut"];
+                };
+            };
+        };
+    };
+    read_scores_api_v1_vuz_selection_scores_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExamScoresOut"];
+                };
+            };
+        };
+    };
+    save_scores_api_v1_vuz_selection_scores_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExamScoresIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExamScoresOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_subjects_api_v1_vuz_selection_subjects_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubjectsOut"];
+                };
+            };
+        };
+    };
+    track_api_v1_vuz_selection_track__university_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                university_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackedOut"];
+                };
+            };
+            /** @description Вуза или направления с таким идентификатором нет */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_university_card_api_v1_vuz_selection_universities__university_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                university_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UniversityCardOut"];
+                };
+            };
+            /** @description Вуза с таким идентификатором нет */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
