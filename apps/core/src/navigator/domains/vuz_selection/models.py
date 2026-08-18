@@ -59,3 +59,106 @@ class Direction(Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class AdmissionProgram(Model):
+    """Направление в конкретном вузе: то, куда подают документы (тех. ТЗ 3.3).
+
+    Проходной балл прошлого года — **демонстрационное** значение (уточнение У3):
+    открытых данных приёмных кампаний в проекте пока нет, и выдавать эти числа
+    за официальные нельзя. API помечает их так же, как цифры вуза.
+    """
+
+    id = fields.BigIntField(primary_key=True)
+    university: fields.ForeignKeyRelation[Model] = fields.ForeignKeyField(
+        "models.University",
+        related_name="admission_programs",
+        on_delete=fields.CASCADE,
+    )
+    university_id: int
+    direction: fields.ForeignKeyRelation[Direction] = fields.ForeignKeyField(
+        "models.Direction",
+        related_name="programs",
+        on_delete=fields.CASCADE,
+    )
+    direction_id: int
+
+    # Сумма баллов по обязательным предметам направления, с которой в прошлом
+    # году проходили на бюджет.
+    passing_score = fields.IntField()
+    budget_places = fields.IntField()
+
+    class Meta:
+        table = "admission_programs"
+        ordering: ClassVar[list[str]] = ["passing_score"]
+        unique_together = (("university", "direction"),)
+
+    def __str__(self) -> str:
+        return f"программа #{self.id}"
+
+
+class ExamScore(Model):
+    """Балл ЕГЭ по одному предмету (тех. ТЗ 3.3).
+
+    Хранится на сервере, а не только в браузере: один и тот же пользователь
+    открывает приложение то с телефона, то с компьютера, и баллы не должны
+    расходиться между устройствами (ТЗ 0.2).
+    """
+
+    id = fields.BigIntField(primary_key=True)
+    user: fields.ForeignKeyRelation[Model] = fields.ForeignKeyField(
+        "models.User",
+        related_name="exam_scores",
+        on_delete=fields.CASCADE,
+    )
+    user_id: int
+    subject = fields.CharField(max_length=64)
+    score = fields.IntField()
+
+    class Meta:
+        table = "exam_scores"
+        ordering: ClassVar[list[str]] = ["subject"]
+        unique_together = (("user", "subject"),)
+
+    def __str__(self) -> str:
+        return f"{self.subject}: {self.score}"
+
+
+class TrackedVuz(Model):
+    """Вуз, добавленный в отслеживаемые из карточки (ТЗ 2.7, тех. ТЗ 3.3).
+
+    Живёт здесь, а не в домене tracker: добавляют его в блоке 2, а блок 3 уже
+    читает список через сервисный слой.
+    """
+
+    id = fields.BigIntField(primary_key=True)
+    user: fields.ForeignKeyRelation[Model] = fields.ForeignKeyField(
+        "models.User",
+        related_name="tracked_vuzy",
+        on_delete=fields.CASCADE,
+    )
+    user_id: int
+    university: fields.ForeignKeyRelation[Model] = fields.ForeignKeyField(
+        "models.University",
+        related_name="trackers",
+        on_delete=fields.CASCADE,
+    )
+    university_id: int
+    # Направление, ради которого вуз добавлен: в трекере видно, куда именно
+    # человек подаёт документы.
+    direction: fields.ForeignKeyNullableRelation[Direction] = fields.ForeignKeyField(
+        "models.Direction",
+        null=True,
+        related_name="tracked",
+        on_delete=fields.SET_NULL,
+    )
+    direction_id: int | None
+    added_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "tracked_vuzy"
+        ordering: ClassVar[list[str]] = ["added_at"]
+        unique_together = (("user", "university"),)
+
+    def __str__(self) -> str:
+        return f"отслеживаемый вуз #{self.id}"
