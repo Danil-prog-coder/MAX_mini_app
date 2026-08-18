@@ -202,6 +202,11 @@ export interface components {
         };
         /** UniversityOut */
         UniversityOut: {
+            /**
+             * Address
+             * @description Адрес корпуса, к которому относятся координаты
+             */
+            address: string;
             /** Admission Deadline */
             admission_deadline: string | null;
             /** Budget Places */
@@ -221,9 +226,20 @@ export interface components {
             latitude: number;
             /** Longitude */
             longitude: number;
-            /** Name */
+            /**
+             * Name
+             * @description Полное официальное название
+             */
             name: string;
-            /** Tuition Price */
+            /**
+             * Short Name
+             * @description Короткое название для интерфейса
+             */
+            short_name: string;
+            /**
+             * Tuition Price
+             * @description Стоимость года обучения в рублях
+             */
             tuition_price: number | null;
         };
         /**

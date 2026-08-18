@@ -19,16 +19,27 @@ from tests.conftest import as_user
 pytestmark = pytest.mark.integration
 
 
-async def make_university(name: str = "Северный политехнический") -> service.University:
+async def make_university(
+    name: str = "Северный политехнический", short_name: str = "СевПолитех"
+) -> service.University:
+    """Вуз для тестов профиля.
+
+    Намеренно не из справочника (`catalogue.py`): этим тестам нужен любой вуз,
+    и привязка к настоящей записи сделала бы их зависимыми от правок
+    справочника. Содержимое справочника проверяется отдельно.
+    """
     return await service.University.create(
         name=name,
+        short_name=short_name,
         city="Архангельск",
+        address="наб. Северной Двины, д. 17",
         latitude=64.539,
         longitude=40.518,
         budget_places=120,
-        tuition_price=168,
+        # В рублях за год, как и в справочнике (см. комментарий в модели).
+        tuition_price=168_000,
         has_dormitory=True,
-        admission_deadline=date(2026, 7, 25),
+        admission_deadline=date(2027, 7, 25),
     )
 
 
@@ -320,13 +331,16 @@ async def test_admission_numbers_are_marked_as_demo_data(
         assert field in item
 
 
-async def test_universities_are_sorted_by_name(api_client: httpx.AsyncClient) -> None:
-    await make_university("Приморский федеральный")
-    await make_university("Институт прикладных наук")
+async def test_universities_are_sorted_by_the_name_the_user_sees(
+    api_client: httpx.AsyncClient,
+) -> None:
+    """Порядок — по короткому названию: в списке выбора видно именно его."""
+    await make_university("Приморский федеральный", "ПримФУ")
+    await make_university("Институт прикладных наук", "ИПН")
 
-    names = [
-        item["name"]
+    short_names = [
+        item["short_name"]
         for item in (await api_client.get("/api/v1/universities", headers=as_user("u-1"))).json()
     ]
 
-    assert names == sorted(names)
+    assert short_names == sorted(short_names)

@@ -27,14 +27,16 @@ ADMISSION_DEMO_FIELDS: Final = (
 
 class UniversityOut(BaseModel):
     id: int
-    name: str
+    name: str = Field(description="Полное официальное название")
+    short_name: str = Field(description="Короткое название для интерфейса")
     city: str
+    address: str = Field(description="Адрес корпуса, к которому относятся координаты")
     #: Координаты настоящие: на них работает блок 7 (уточнение У4).
     latitude: float
     longitude: float
 
     budget_places: int | None
-    tuition_price: int | None
+    tuition_price: int | None = Field(description="Стоимость года обучения в рублях")
     has_dormitory: bool
     admission_deadline: date | None
 
@@ -51,7 +53,9 @@ class UniversityOut(BaseModel):
         return cls(
             id=university.id,
             name=university.name,
+            short_name=university.short_name,
             city=university.city,
+            address=university.address,
             latitude=university.latitude,
             longitude=university.longitude,
             budget_places=university.budget_places,
