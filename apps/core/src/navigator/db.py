@@ -29,6 +29,7 @@ DOMAIN_MODEL_MODULES: tuple[str, ...] = (
     "navigator.domains.schedule.models",
     "navigator.domains.mentor_qa.models",
     "navigator.domains.food.models",
+    "navigator.domains.support.models",
     "navigator.domains.gamification.models",
 )
 

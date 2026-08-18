@@ -140,3 +140,31 @@ async def moderate_question(
         return None
     reason = body.get("reason")
     return Moderation(verdict=verdict, reason=reason if isinstance(reason, str) else "")
+
+
+async def classify_ticket(
+    settings: Settings,
+    *,
+    text: str,
+    categories: Mapping[str, str],
+) -> str | None:
+    """Категория обращения по мнению модели или `None`, если шлюз молчит.
+
+    Подстраховка, а не решение (тех. ТЗ 3.9): отписка пользователю всё равно
+    берётся из заготовленного пула, и молчание модели ничего не ломает.
+    """
+    try:
+        response = await get_client(settings).post(
+            "/internal/ai/classify-ticket",
+            json={"text": text, "categories": dict(categories)},
+        )
+        response.raise_for_status()
+    except Exception:
+        log.warning("ai_gateway_unavailable", endpoint="classify-ticket", exc_info=True)
+        return None
+
+    category = response.json().get("category")
+    if not isinstance(category, str) or category not in categories:
+        log.warning("ai_gateway_unexpected_category", category=category)
+        return None
+    return category
