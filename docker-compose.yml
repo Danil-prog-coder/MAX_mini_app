@@ -18,13 +18,14 @@ x-core-image: &core-image
     dockerfile: apps/core/Dockerfile
 
 # Сервисы приложения ждут не только живых Postgres и Redis, но и завершения
-# миграций: подниматься на несовпадающей схеме бессмысленно.
+# миграций и заливки справочников: подниматься на несовпадающей схеме
+# бессмысленно, а пустой справочник вузов делает бесполезными блоки 2, 3 и 7.
 x-core-depends-on: &core-depends-on
   postgres:
     condition: service_healthy
   redis:
     condition: service_healthy
-  migrate:
+  seed:
     condition: service_completed_successfully
 
 x-core-env: &core-env
@@ -93,6 +94,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: "no"
+    networks: [navigator]
+
+  seed:
+    <<: *core-image
+    # Заливка справочных данных (вузы, уточнение У4) после миграций. Команда
+    # идемпотентна, поэтому выполняется при каждом подъёме окружения: так
+    # справочник в базе всегда совпадает с файлом в репозитории, и про
+    # заливку не нужно помнить руками.
+    command: ["python", "-m", "navigator.seed"]
+    environment: *core-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: "no"
     networks: [navigator]
 
