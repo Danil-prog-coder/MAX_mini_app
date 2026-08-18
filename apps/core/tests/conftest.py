@@ -15,7 +15,7 @@ import pytest
 from tortoise import Tortoise, connections
 
 from navigator.api.app import create_app
-from navigator.cache import check_redis, close_redis
+from navigator.cache import check_redis, close_redis, get_redis
 from navigator.config import Settings, get_settings
 from navigator.db import check_db, close_db, init_db
 from navigator.platform.initdata import MOCK_USER_HEADER
@@ -134,6 +134,34 @@ def _recreate_test_schema(settings: Settings) -> None:
     _schema_prepared = True
 
 
+def _reset_redis(settings: Settings) -> None:
+    """Очищает тестовый Redis и закрывает клиент.
+
+    Две причины, и обе несущие. Первая: кэш переживает тест, и следующий тест
+    видит чужие значения — проверка «сходил ли код в источник» становится
+    случайной. Вторая: клиент redis-py привязан к событийному циклу, в котором
+    создан, а у каждого теста цикл свой; незакрытый клиент из прошлого теста
+    всплывает предупреждением о ненормально закрытом транспорте.
+
+    Нулевую базу Redis не трогаем никогда: это рабочая база приложения, а
+    тестовая по умолчанию пятнадцатая (решение Р23).
+    """
+    if urlsplit(settings.redis_url).path in ("", "/", "/0"):
+        raise RuntimeError(
+            f"TEST_REDIS_URL указывает на рабочую базу Redis "
+            f"({redact_password(settings.redis_url)}) — очистка отменена. "
+            f"Тесты идут в отдельный номер базы (решение Р23)"
+        )
+
+    async def run() -> None:
+        try:
+            await get_redis(settings).flushdb()
+        finally:
+            await close_redis()
+
+    asyncio.run(run())
+
+
 @pytest.fixture
 def integration_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
     """Настройки для тестов, которым нужны настоящие Postgres и Redis.
@@ -164,6 +192,9 @@ def integration_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
     # поднимется — ровно то поведение, которое нужно в production, и ровно то,
     # что мешает здесь. Локальный запуск идёт через MOCK_AUTH (тех. ТЗ 9.3).
     monkeypatch.setenv("MOCK_AUTH", "true")
+    # Внешние источники в тестах — только фикстурные реализации: тест не имеет
+    # права зависеть от чужого сервиса и от наличия сети (тех. ТЗ 7).
+    monkeypatch.setenv("SOURCE_VACANCIES", "fixture")
 
     get_settings.cache_clear()
     try:
@@ -177,9 +208,27 @@ def integration_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
                 f"(сейчас: {redact_password(database_url)}, {redact_password(redis_url)})"
             )
         _recreate_test_schema(settings)
+        _reset_redis(settings)
         yield settings
     finally:
         get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+async def close_redis_after_test() -> AsyncIterator[None]:
+    """Закрывает клиент Redis в том же событийном цикле, где он был создан.
+
+    Клиент глобальный и ленивый: его создаёт первый же вызов внутри теста, а у
+    каждого теста свой цикл. Если не закрыть здесь, соединение уедет в
+    следующий тест уже нерабочим, а сборщик мусора выдаст предупреждение о
+    незакрытом транспорте — которое `filterwarnings = error` превращает в
+    падение случайного соседнего теста.
+
+    Закрывать из другого цикла нельзя: `asyncio.run` в teardown синхронной
+    фикстуры падает с «Event loop is closed». Поэтому фикстура асинхронная.
+    """
+    yield
+    await close_redis()
 
 
 async def reset_database() -> None:
