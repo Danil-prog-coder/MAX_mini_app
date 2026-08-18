@@ -12,6 +12,7 @@ dependencies = [
     # Та же версия, что в Core API: один Redis, одинаковое поведение клиента.
     "redis>=6.4.0,<6.5",
     "structlog>=26.1.0,<27.0.0",
+    "jinja2>=3.1.6,<4.0.0",
 ]
 
 [project.optional-dependencies]

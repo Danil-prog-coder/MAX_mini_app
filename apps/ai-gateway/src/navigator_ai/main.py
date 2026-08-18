@@ -13,24 +13,59 @@ import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI, Response, status
-from pydantic import BaseModel
+from fastapi import APIRouter, FastAPI, HTTPException, Response, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from navigator_ai import __version__
 from navigator_ai.cache import check_redis, close_redis
 from navigator_ai.config import Settings, get_settings
-from navigator_ai.deps import SettingsDep
+from navigator_ai.deps import ProviderDep, SettingsDep
 from navigator_ai.logging import configure_logging, get_logger
-from navigator_ai.providers import build_provider
+from navigator_ai.prompts import render
+from navigator_ai.providers import LLMUnavailableError, build_provider
 
 log = get_logger(__name__)
 
 health_router = APIRouter(tags=["service"])
 
-# Эндпоинты тех. ТЗ 5 (`/internal/ai/career-explanation`, `/internal/ai/moderate-question`,
-# `/internal/ai/classify-ticket`) добавляются вместе с реализацией провайдеров:
-# по плану работ AI Gateway делается последним.
+# Внутренние эндпоинты тех. ТЗ 5. Появляются вместе с блоками, которым нужны:
+# `/internal/ai/career-explanation` — с блоком 1. Остальные два
+# (`moderate-question`, `classify-ticket`) добавляются с блоками 5 и 8.
 internal_router = APIRouter(prefix="/internal/ai", tags=["ai"])
+
+
+class DirectionIn(BaseModel):
+    """Направление из топ-3 — вход для объяснения результата теста."""
+
+    name: str = Field(max_length=128)
+    summary: str = Field(default="", max_length=512)
+    match_percent: int = Field(ge=0, le=100)
+
+
+class CareerExplanationRequest(BaseModel):
+    """Запрос на объяснение результата теста (тех. ТЗ 3.2, 5).
+
+    Расчёт остаётся на стороне Core API: сюда приходит уже посчитанный
+    результат, а модель только превращает цифры в человеческий текст.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Вектор профиля: {"analyst": 7, "creator": 2, "organizer": 1}.
+    profile: dict[str, int] = Field(default_factory=dict)
+    directions: list[DirectionIn] = Field(min_length=1, max_length=5)
+    #: Имя пользователя, если оно известно (уточнение У6). Не обязательно.
+    display_name: str | None = Field(default=None, max_length=128)
+
+
+class CompletionResponse(BaseModel):
+    """Ответ модели вместе с расходом токенов (тех. ТЗ 5, п. 5)."""
+
+    text: str
+    provider: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 
 class LivenessResponse(BaseModel):
@@ -81,6 +116,65 @@ async def readiness(settings: SettingsDep, response: Response) -> ReadinessRespo
     if not ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return ReadinessResponse(status="ok" if ok else "degraded", dependencies=list(dependencies))
+
+
+#: Потолок длины объяснения. Четыре предложения не требуют больше.
+CAREER_EXPLANATION_MAX_TOKENS = 320
+#: Температура: объяснение должно быть живым, но не фантазировать про вузы.
+CAREER_EXPLANATION_TEMPERATURE = 0.4
+
+
+@internal_router.post(
+    "/career-explanation",
+    response_model=CompletionResponse,
+    summary="Объяснение результата профориентационного теста",
+)
+async def career_explanation(
+    payload: CareerExplanationRequest,
+    provider: ProviderDep,
+    settings: SettingsDep,
+) -> CompletionResponse:
+    """Превращает посчитанный результат теста в человеческий текст (тех. ТЗ 3.2).
+
+    Недоступность модели — 503, а не 500: для вызывающей стороны это сигнал
+    показать описание направления из справочника и не считать прохождение
+    теста сорванным.
+    """
+    prompt = render(
+        "career_explanation.jinja",
+        # Профиль отдаётся парами, а не словарём: порядок в промпте должен быть
+        # стабильным, иначе одинаковые запросы дают разные промпты и мимо кэша.
+        profile=sorted(payload.profile.items(), key=lambda item: (-item[1], item[0])),
+        directions=payload.directions,
+        display_name=payload.display_name,
+    )
+    try:
+        completion = await provider.complete(
+            prompt,
+            max_tokens=CAREER_EXPLANATION_MAX_TOKENS,
+            temperature=CAREER_EXPLANATION_TEMPERATURE,
+        )
+    except LLMUnavailableError as error:
+        log.warning("llm_unavailable", endpoint="career-explanation", provider=provider.name)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="модель недоступна",
+        ) from error
+
+    log.info(
+        "llm_completed",
+        endpoint="career-explanation",
+        provider=completion.provider,
+        total_tokens=completion.total_tokens,
+        environment=settings.environment.value,
+    )
+    return CompletionResponse(
+        text=completion.text,
+        provider=completion.provider,
+        prompt_tokens=completion.prompt_tokens,
+        completion_tokens=completion.completion_tokens,
+        total_tokens=completion.total_tokens,
+    )
 
 
 @asynccontextmanager
