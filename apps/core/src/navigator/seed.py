@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from navigator.config import get_settings
 from navigator.db import close_db, init_db
 from navigator.domains.career_test import service as career_test
+from navigator.domains.schedule import service as schedule
 from navigator.domains.users import service as users
 from navigator.domains.vuz_selection import service as vuz_selection
 from navigator.logging import configure_logging, get_logger
@@ -36,6 +37,7 @@ class SeedReport:
     directions: vuz_selection.CatalogueSync
     questions: career_test.CatalogueSync
     programs: vuz_selection.ProgramsSync
+    timetables: schedule.TimetableSync
 
 
 async def seed() -> SeedReport:
@@ -50,6 +52,8 @@ async def seed() -> SeedReport:
             questions=await career_test.sync_questions(),
             # Программы заливаются последними: им нужны и вузы, и направления.
             programs=await vuz_selection.sync_programs(settings),
+            # Расписания заливаются после вузов: группы заводятся в каждом.
+            timetables=await schedule.sync_timetables(settings),
         )
     finally:
         await close_db()
@@ -89,6 +93,12 @@ def main() -> None:
         created=report.programs.created,
         updated=report.programs.updated,
         unchanged=report.programs.unchanged,
+    )
+    log.info(
+        "timetables_synced",
+        groups_created=report.timetables.groups_created,
+        lessons_created=report.timetables.lessons_created,
+        unchanged_groups=report.timetables.unchanged_groups,
     )
     if report.programs.skipped:
         log.warning(
