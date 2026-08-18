@@ -14,11 +14,13 @@ from typing import Final
 from tortoise.exceptions import IntegrityError
 from tortoise.transactions import in_transaction
 
+from navigator.config import Settings
 from navigator.domains.gamification.models import (
     MonthlyTitle,
     PointsReason,
     PointsTransaction,
 )
+from navigator.domains.notifications import service as notifications
 from navigator.domains.users import service as users
 
 __all__ = [
@@ -324,13 +326,17 @@ async def title_now(*, now: datetime | None = None) -> MonthlyTitle | None:
     return await MonthlyTitle.get_or_none(month=_first_day(moment.date()))
 
 
-async def award_monthly_title(*, now: datetime | None = None) -> MonthlyTitle | None:
+async def award_monthly_title(
+    settings: Settings | None = None, *, now: datetime | None = None
+) -> MonthlyTitle | None:
     """Присваивает статус месяца лидеру прошедшего месяца (ТЗ 6.4).
 
     Вызывается фоновой задачей в начале месяца (тех. ТЗ 4). Идемпотентна:
     месяц уникален, и повторный запуск ничего не меняет.
 
-    Статус один на всю площадку, а не по вузу (уточнение У19).
+    Статус один на всю площадку, а не по вузу (уточнение У19). Победитель
+    получает поздравление (ТЗ 6.6) — но только если передана конфигурация:
+    без неё функция считает титул и молчит, как в тестах расчёта.
     """
     moment = now or datetime.now(UTC)
     this_month = _first_day(moment.date())
@@ -355,7 +361,7 @@ async def award_monthly_title(*, now: datetime | None = None) -> MonthlyTitle | 
 
     winner_id, points = max(earned.items(), key=lambda item: (item[1], -item[0]))
     try:
-        return await MonthlyTitle.create(
+        title = await MonthlyTitle.create(
             user_id=winner_id,
             month=this_month,
             title_name=TITLE_NAME,
@@ -363,5 +369,22 @@ async def award_monthly_title(*, now: datetime | None = None) -> MonthlyTitle | 
         )
     except IntegrityError:
         # Другая копия задачи успела раньше: это ровно тот результат, которого
-        # мы и хотели.
+        # мы и хотели, и поздравление она уже отправила.
         return await MonthlyTitle.get_or_none(month=this_month)
+
+    if settings is not None:
+        winner = await users.get_by_id(winner_id)
+        if winner is not None:
+            await notifications.notify(
+                settings,
+                winner,
+                kind=notifications.NotificationKind.monthly_title,
+                title=TITLE_NAME,
+                body=(
+                    f"Вы набрали {points} баллов за прошлый месяц — больше всех. "
+                    f"Статус виден рядом с вашим именем в ленте вопросов."
+                ),
+                dedup_key=f"title:{this_month}",
+                payload={"screen": "leaderboard"},
+            )
+    return title

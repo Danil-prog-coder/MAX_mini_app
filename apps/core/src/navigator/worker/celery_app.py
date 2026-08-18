@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from celery import Celery
+from celery.schedules import crontab
 
 from navigator.config import get_settings
 from navigator.logging import configure_logging
@@ -46,18 +47,37 @@ app.conf.update(
     worker_hijack_root_logger=False,
 )
 
-# Расписание из тех. ТЗ 4. Каждая задача добавляет свою запись вместе с
-# реализацией — так расписание и код не расходятся:
+# Расписание из тех. ТЗ 4. Задачи recalculate_weekly_leaderboard в продукте
+# нет: уточнение У20 отменило недельный рейтинг менторов.
 #
-#   sync_vuz_admission_lists      каждые 4 часа
-#   send_deadline_reminders       ежедневно 09:00
-#   send_daily_schedule_digest    ежедневно, время из настроек пользователя (У9)
-#   sync_food_spots_cache         раз в сутки, на вуз
-#   sync_vacancies_cache          раз в сутки
-#   calculate_monthly_title       1-е число месяца, 00:00
-#
-# Задачи recalculate_weekly_leaderboard в продукте нет: уточнение У20 отменило
-# недельный рейтинг менторов.
-BEAT_SCHEDULE: dict[str, dict[str, Any]] = {}
+# Сводка расписания запускается **ежечасно**, а не раз в сутки: время у каждого
+# своё (уточнение У9), и выбирает получателей сама задача. Расписание Celery
+# Beat одно на всех, персонального времени в нём быть не может.
+BEAT_SCHEDULE: dict[str, dict[str, Any]] = {
+    "sync-vuz-admission-lists": {
+        "task": "navigator.worker.tasks.sync_vuz_admission_lists",
+        "schedule": crontab(minute="0", hour="*/4"),
+    },
+    "send-deadline-reminders": {
+        "task": "navigator.worker.tasks.send_deadline_reminders",
+        "schedule": crontab(minute="0", hour="9"),
+    },
+    "send-daily-schedule-digest": {
+        "task": "navigator.worker.tasks.send_daily_schedule_digest",
+        "schedule": crontab(minute="0"),
+    },
+    "sync-food-spots-cache": {
+        "task": "navigator.worker.tasks.sync_food_spots_cache",
+        "schedule": crontab(minute="0", hour="4"),
+    },
+    "sync-vacancies-cache": {
+        "task": "navigator.worker.tasks.sync_vacancies_cache",
+        "schedule": crontab(minute="30", hour="4"),
+    },
+    "calculate-monthly-title": {
+        "task": "navigator.worker.tasks.calculate_monthly_title",
+        "schedule": crontab(minute="0", hour="0", day_of_month="1"),
+    },
+}
 
 app.conf.beat_schedule = BEAT_SCHEDULE

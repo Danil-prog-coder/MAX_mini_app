@@ -12,6 +12,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Final, Protocol
 
 from navigator.config import Settings
+from navigator.domains.notifications import service as notifications
 from navigator.domains.tracker.models import CompetitionPosition
 from navigator.domains.tracker.sources import competition_lists
 from navigator.domains.users import service as users
@@ -201,6 +202,7 @@ async def sync_positions(settings: Settings) -> SyncReport:
 
     Новая строка пишется, только если место изменилось: иначе история за неделю
     заросла бы одинаковыми значениями и график перестал бы что-либо показывать.
+    Об изменении человек узнаёт уведомлением (ТЗ 3.6).
     """
     source = competition_lists.create(settings.source_competition_lists)
 
@@ -232,8 +234,38 @@ async def sync_positions(settings: Settings) -> SyncReport:
             estimated_passing_score=snapshot.estimated_passing_score,
         )
         moved += 1
+        await _notify_move(settings, item, previous=current.position, now=snapshot.position)
 
     return SyncReport(checked=checked, moved=moved, skipped=skipped)
+
+
+async def _notify_move(
+    settings: Settings,
+    tracked: vuz_selection.TrackedVuz,
+    *,
+    previous: int,
+    now: int,
+) -> None:
+    """Сообщает о движении по списку (ТЗ 3.6).
+
+    Ключ повтора содержит оба места: та же проверка при повторном запуске
+    задачи даст тот же ключ и не создаст второго уведомления.
+    """
+    user = await users.get_by_id(tracked.user_id)
+    university = await users.get_university_or_none(tracked.university_id)
+    if user is None or university is None:
+        return
+
+    direction = "поднялись" if now < previous else "опустились"
+    await notifications.notify(
+        settings,
+        user,
+        kind=notifications.NotificationKind.position_changed,
+        title=f"{university.short_name}: {now} место",
+        body=f"Вы {direction} с {previous} на {now} место в конкурсном списке.",
+        dedup_key=f"position:{tracked.id}:{previous}:{now}",
+        payload={"screen": "tracker-detail", "university_id": tracked.university_id},
+    )
 
 
 async def _latest_positions(tracked_ids: list[int]) -> dict[int, CompetitionPosition]:
@@ -265,3 +297,69 @@ def week_of(entries: Sequence[HasPosition], today: date | None = None) -> tuple[
         WeekPoint(weekday=name, position=by_day.get(monday + timedelta(days=offset)))
         for offset, name in enumerate(WEEKDAYS)
     )
+
+
+# ─── напоминания о датах приёма (ТЗ 3.7) ─────────────────────────────────────
+
+#: За сколько дней предупреждать: за 7 до старта и за 1 до окончания (ТЗ 3.7).
+#: Даты старта приёма в справочнике нет — есть только окончание, поэтому оба
+#: напоминания привязаны к нему. Это отмечено в PLAN.md как открытый вопрос.
+REMINDER_DAYS: Final[tuple[int, ...]] = (7, 1)
+
+
+@dataclass(frozen=True, slots=True)
+class ReminderReport:
+    """Что сделали напоминания о приёме документов."""
+
+    checked: int
+    sent: int
+
+
+async def admission_reminders(settings: Settings, *, today: date | None = None) -> ReminderReport:
+    """Напоминает о приближении окончания приёма документов (ТЗ 3.7).
+
+    Вызывается фоновой задачей (тех. ТЗ 4). Идемпотентна: ключ повтора содержит
+    вуз и число дней, поэтому второй запуск в тот же день ничего не создаёт.
+    """
+    day = today or datetime.now(UTC).date()
+    universities = {u.id: u for u in await users.list_universities()}
+    tracked = await vuz_selection.TrackedVuz.all()
+
+    checked = 0
+    sent = 0
+    for item in tracked:
+        university = universities.get(item.university_id)
+        if university is None or university.admission_deadline is None:
+            continue
+
+        checked += 1
+        left = (university.admission_deadline - day).days
+        if left not in REMINDER_DAYS:
+            continue
+
+        user = await users.get_by_id(item.user_id)
+        if user is None:
+            continue
+
+        result = await notifications.notify(
+            settings,
+            user,
+            kind=(
+                notifications.NotificationKind.admission_end
+                if left == 1
+                else notifications.NotificationKind.admission_start
+            ),
+            title=f"{university.short_name}: приём заканчивается",
+            body=(
+                f"До окончания приёма документов в {university.short_name} остался {left} день."
+                if left == 1
+                else f"До окончания приёма документов в {university.short_name} "
+                f"осталось {left} дней."
+            ),
+            dedup_key=f"admission:{item.university_id}:{left}:{university.admission_deadline}",
+            payload={"screen": "vuz-card", "university_id": item.university_id},
+        )
+        if result.created:
+            sent += 1
+
+    return ReminderReport(checked=checked, sent=sent)

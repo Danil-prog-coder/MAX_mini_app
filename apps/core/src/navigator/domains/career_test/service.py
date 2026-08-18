@@ -44,6 +44,7 @@ __all__ = [
     "VacancyReport",
     "latest_result",
     "list_questions",
+    "refresh_vacancies_cache",
     "save_to_profile",
     "submit",
     "sync_questions",
@@ -289,3 +290,32 @@ async def _replace_options(question: TestQuestion, record: QuestionRecord) -> No
             text=text,
             weight_vector=weight_vector,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class VacanciesRefresh:
+    """Что сделало обновление кэша вакансий."""
+
+    directions: int
+    #: Направления, по которым источник не ответил. Кэш там остался прежним —
+    #: устаревшее число лучше пустого экрана (уточнение У14).
+    failed: tuple[str, ...]
+
+
+async def refresh_vacancies_cache(settings: Settings) -> VacanciesRefresh:
+    """Обновляет кэш вакансий по всем направлениям (тех. ТЗ 4).
+
+    Вызывается фоновой задачей раз в сутки. Отказ источника по одному
+    направлению не должен останавливать остальные: у каждого свой кэш, и
+    падение hh.ru на одном запросе не повод оставить без обновления девять
+    других.
+    """
+    failed: list[str] = []
+    directions = await vuz_selection.list_directions()
+
+    for direction in directions:
+        report = await vacancies_for(direction.code, settings=settings)
+        if report.stale:
+            failed.append(direction.code)
+
+    return VacanciesRefresh(directions=len(directions), failed=tuple(failed))

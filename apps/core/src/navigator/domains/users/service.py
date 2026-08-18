@@ -43,6 +43,7 @@ __all__ = [
     "get_or_create",
     "get_university",
     "get_university_or_none",
+    "list_all",
     "list_universities",
     "sync_universities",
     "update_profile",
@@ -234,6 +235,11 @@ async def get_many(user_ids: Iterable[int]) -> list[User]:
     if not ids:
         return []
     return await User.filter(id__in=ids)
+
+
+async def list_all() -> list[User]:
+    """Все профили. Нужен фоновым рассылкам: они обходят пользователей."""
+    return await User.all()
 
 
 async def list_universities() -> list[University]:

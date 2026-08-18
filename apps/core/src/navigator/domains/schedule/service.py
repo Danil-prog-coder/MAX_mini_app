@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from tortoise.transactions import in_transaction
 
 from navigator.config import Settings
+from navigator.domains.notifications import service as notifications
 from navigator.domains.schedule.models import Lesson, PersonalDeadline, StudyGroup
 from navigator.domains.schedule.sources import minutes_of, time_of, timetables
 from navigator.domains.users import service as users
@@ -37,9 +38,11 @@ __all__ = [
     "User",
     "add_deadline",
     "bind_group",
+    "deadline_reminders",
     "list_deadlines",
     "list_groups",
     "require_access",
+    "send_digests",
     "sync_timetables",
     "time_of",
     "today_for",
@@ -236,3 +239,110 @@ async def sync_timetables(settings: Settings) -> TimetableSync:
         lessons_created=lessons_created,
         unchanged_groups=unchanged_groups,
     )
+
+
+# ─── фоновые рассылки (ТЗ 4.4, 4.6; тех. ТЗ 4) ───────────────────────────────
+
+#: За сколько дней напоминать о личном дедлайне (ТЗ 4.6).
+REMINDER_DAYS: Final = 1
+
+
+@dataclass(frozen=True, slots=True)
+class SendReport:
+    """Что сделала рассылка."""
+
+    checked: int
+    sent: int
+
+
+async def deadline_reminders(settings: Settings, *, today: date | None = None) -> SendReport:
+    """Напоминает о личных дедлайнах за сутки (ТЗ 4.6).
+
+    Идемпотентна: ключ повтора содержит дедлайн, поэтому второй запуск задачи в
+    тот же день ничего не создаёт.
+    """
+    day = today or _now().date()
+    due = day + timedelta(days=REMINDER_DAYS)
+    deadlines = await PersonalDeadline.filter(due_date=due)
+
+    sent = 0
+    for deadline in deadlines:
+        user = await users.get_by_id(deadline.user_id)
+        if user is None:
+            continue
+        result = await notifications.notify(
+            settings,
+            user,
+            kind=notifications.NotificationKind.deadline_soon,
+            title=deadline.title,
+            body=f"Завтра, {deadline.due_date:%d.%m}. Напоминаю за сутки, как договаривались.",
+            dedup_key=f"deadline:{deadline.id}:{deadline.due_date}",
+            payload={"screen": "schedule"},
+        )
+        if result.created:
+            sent += 1
+            deadline.notified = True
+            await deadline.save(update_fields=["notified"])
+
+    return SendReport(checked=len(deadlines), sent=sent)
+
+
+async def send_digests(settings: Settings, *, now: datetime | None = None) -> SendReport:
+    """Рассылает сводку расписания тем, у кого сейчас их час (ТЗ 4.4).
+
+    Час у каждого свой (уточнение У9), поэтому задача запускается ежечасно и
+    сама выбирает, кому сейчас пора. Ключ повтора содержит дату — второй запуск
+    в тот же час ничего не продублирует.
+    """
+    moment = now or _now()
+    day = moment.date()
+
+    checked = 0
+    sent = 0
+    for user in await users.list_all():
+        if not users.access_of(user).schedule or not user.group_name:
+            continue
+
+        preferences = await notifications.settings_for(user)
+        if preferences.digest_hour != moment.hour:
+            continue
+
+        checked += 1
+        summary = await today_for(user, now=moment)
+        result = await notifications.notify(
+            settings,
+            user,
+            kind=notifications.NotificationKind.schedule_digest,
+            title=_digest_title(len(summary.lessons)),
+            body=_digest_body(summary),
+            dedup_key=f"digest:{day}",
+            payload={"screen": "schedule"},
+        )
+        if result.created:
+            sent += 1
+
+    return SendReport(checked=checked, sent=sent)
+
+
+def _digest_title(lessons: int) -> str:
+    if lessons == 0:
+        return "Сегодня пар нет"
+    if lessons == 1:
+        return "Сегодня 1 пара"
+    if lessons < 5:
+        return f"Сегодня {lessons} пары"
+    return f"Сегодня {lessons} пар"
+
+
+def _digest_body(summary: Today) -> str:
+    """Текст сводки: пары и ближайшие дедлайны (ТЗ 4.4)."""
+    parts: list[str] = []
+    if summary.lessons:
+        first = summary.lessons[0].lesson
+        parts.append(f"Начало в {time_of(first.starts_at_minutes):%H:%M}, {first.title}.")
+    if summary.deadlines:
+        nearest = summary.deadlines[0]
+        parts.append(f"Ближайший дедлайн: {nearest.title} до {nearest.due_date:%d.%m}.")
+    if not parts:
+        parts.append("Пар и дедлайнов на сегодня нет.")
+    return " ".join(parts)

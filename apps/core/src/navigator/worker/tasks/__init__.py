@@ -14,3 +14,21 @@ Celery её увидел (`include=["navigator.worker.tasks"]` в celery_app).
 4. **Ничего не отправляется наружу напрямую.** Уведомление — это запись в
    очередь домена notifications; доставку выбирает транспорт (уточнение У25).
 """
+
+from navigator.worker.tasks.scheduled import (
+    calculate_monthly_title,
+    send_daily_schedule_digest,
+    send_deadline_reminders,
+    sync_food_spots_cache,
+    sync_vacancies_cache,
+    sync_vuz_admission_lists,
+)
+
+__all__ = [
+    "calculate_monthly_title",
+    "send_daily_schedule_digest",
+    "send_deadline_reminders",
+    "sync_food_spots_cache",
+    "sync_vacancies_cache",
+    "sync_vuz_admission_lists",
+]
