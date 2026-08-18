@@ -404,6 +404,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/support/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Типы обращений
+         * @description Три типа с подписями (ТЗ 8.2).
+         *
+         *     Подписи приходят с сервера: они же уходят в промпт классификации, и
+         *     расходиться им нельзя.
+         */
+        get: operations["read_categories_api_v1_support_categories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Мои обращения
+         * @description История обращений с ответами (ТЗ 8.6).
+         *
+         *     Ответ администратора приходит сюда: «сообщение ушло в пустоту» — ровно то
+         *     ощущение, которое блок и должен снимать.
+         */
+        get: operations["read_tickets_api_v1_support_tickets_get"];
+        put?: never;
+        /**
+         * Отправить обращение
+         * @description Принимает обращение и сразу отвечает типовой отпиской (ТЗ 8.3, 8.4).
+         *
+         *     Отписка выбирается из заготовленного пула, а не пишется моделью: службе
+         *     поддержки нужна предсказуемость (тех. ТЗ 3.9).
+         */
+        post: operations["create_ticket_api_v1_support_tickets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tracker": {
         parameters: {
             query?: never;
@@ -759,6 +812,15 @@ export interface components {
             group_name: string;
         };
         /**
+         * CategoryOut
+         * @description Тип обращения с подписью: чипы рисуются по этому списку (ТЗ 8.2).
+         */
+        CategoryOut: {
+            code: components["schemas"]["TicketCategory"];
+            /** Label */
+            label: string;
+        };
+        /**
          * Chance
          * @description Метка шанса. Подпись, точки и эмодзи рисует интерфейс (уточнение Д1).
          * @enum {string}
@@ -775,6 +837,20 @@ export interface components {
             day: string;
             /** Granted */
             granted: boolean;
+        };
+        /**
+         * CreatedTicketOut
+         * @description Что показать сразу после отправки (ТЗ 8.4).
+         */
+        CreatedTicketOut: {
+            /** Reply */
+            reply: string;
+            /**
+             * Sender
+             * @default Поддержка
+             */
+            sender: string;
+            ticket: components["schemas"]["TicketOut"];
         };
         /**
          * DeadlineIn
@@ -1306,6 +1382,54 @@ export interface components {
             saved_to_profile: boolean;
             /** Top Directions */
             top_directions: components["schemas"]["DirectionMatchOut"][];
+        };
+        /**
+         * TicketCategory
+         * @description Тип обращения (ТЗ 8.2).
+         * @enum {string}
+         */
+        TicketCategory: "bug" | "idea" | "other";
+        /** TicketIn */
+        TicketIn: {
+            category: components["schemas"]["TicketCategory"];
+            /** Text */
+            text: string;
+        };
+        /**
+         * TicketOut
+         * @description Обращение вместе с отпиской и ответом администратора.
+         */
+        TicketOut: {
+            /** Admin Replied At */
+            admin_replied_at: string | null;
+            /** Admin Reply */
+            admin_reply: string | null;
+            /** Auto Reply */
+            auto_reply: string;
+            category: components["schemas"]["TicketCategory"];
+            /** Category Label */
+            category_label: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /**
+             * Sender
+             * @default Поддержка
+             */
+            sender: string;
+            /** Text */
+            text: string;
+        };
+        /** TicketsOut */
+        TicketsOut: {
+            /** Items */
+            items: components["schemas"]["TicketOut"][];
+            /** Total */
+            total: number;
         };
         /**
          * TitleOut
@@ -2140,6 +2264,77 @@ export interface operations {
             };
             /** @description Нужен статус «Студент» и заполненный вуз */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    read_categories_api_v1_support_categories_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryOut"][];
+                };
+            };
+        };
+    };
+    read_tickets_api_v1_support_tickets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketsOut"];
+                };
+            };
+        };
+    };
+    create_ticket_api_v1_support_tickets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedTicketOut"];
+                };
+            };
+            /** @description Текст короче или длиннее допустимого */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

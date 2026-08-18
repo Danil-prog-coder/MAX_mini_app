@@ -365,7 +365,31 @@ interface StubState {
   questions: StubQuestion[];
   checkedInToday: boolean;
   rewards: Set<string>;
+  tickets: {
+    id: number;
+    category: string;
+    category_label: string;
+    text: string;
+    auto_reply: string;
+    admin_reply: string | null;
+    admin_replied_at: string | null;
+    sender: string;
+    created_at: string;
+  }[];
 }
+
+/** Типы обращений (ТЗ 8.2) и по одной отписке из каждого пула (ТЗ 8.4). */
+export const SUPPORT_CATEGORIES = [
+  { code: 'bug', label: 'Что-то не работает' },
+  { code: 'idea', label: 'Есть идея по улучшению' },
+  { code: 'other', label: 'Другой вопрос' },
+];
+
+export const SUPPORT_REPLIES: Record<string, string> = {
+  bug: 'Поймали, спасибо. Передал команде — обычно чиним в течение дня, о результате напишу сюда же.',
+  idea: 'Отличная мысль, спасибо. Идеи собираем в общий список и раз в неделю разбираем с командой.',
+  other: 'Спасибо за сообщение — оно ушло команде, ответ придёт сюда от имени «Поддержки».',
+};
 
 /** Точки питания — как их отдаёт настоящий API (ТЗ 7.5). */
 export const SPOTS = [
@@ -600,6 +624,32 @@ function response(method: string, path: string, body: unknown, state: StubState)
     return { total: items.length, items };
   }
 
+  if (method === 'GET' && path === '/api/v1/support/categories') return SUPPORT_CATEGORIES;
+
+  if (method === 'GET' && path === '/api/v1/support/tickets') {
+    return { total: state.tickets.length, items: state.tickets };
+  }
+
+  if (method === 'POST' && path === '/api/v1/support/tickets') {
+    const payload = body as { category?: string; text?: string };
+    const code = payload.category ?? 'other';
+    const label = SUPPORT_CATEGORIES.find((item) => item.code === code)?.label ?? '';
+    const reply = SUPPORT_REPLIES[code] ?? SUPPORT_REPLIES.other ?? '';
+    const ticket = {
+      id: state.tickets.length + 1,
+      category: code,
+      category_label: label,
+      text: payload.text?.trim() ?? '',
+      auto_reply: reply,
+      admin_reply: null,
+      admin_replied_at: null,
+      sender: 'Поддержка',
+      created_at: new Date().toISOString(),
+    };
+    state.tickets = [ticket, ...state.tickets];
+    return { ticket, reply, sender: 'Поддержка' };
+  }
+
   if (path.startsWith('/api/v1/food')) {
     // Гейт ТЗ 7.2 закрывает раздел целиком, а не только пункт меню.
     if (!accessOf(state.profile).food) return FORBIDDEN;
@@ -830,6 +880,7 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
     questions: options.questions ?? [SEEDED_QUESTION],
     checkedInToday: false,
     rewards: new Set<string>(),
+    tickets: [],
   };
 
   await page.route('**/api/v1/**', async (route: Route) => {
