@@ -116,6 +116,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tracker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Отслеживаемые вузы
+         * @description Список вузов, добавленных в блоке 2 (ТЗ 3.2).
+         *
+         *     Пустой список — не ошибка: экран покажет объяснение и кнопку в блок 2
+         *     (ТЗ 3.3), а не сообщение о сбое.
+         */
+        get: operations["read_tracked_api_v1_tracker_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tracker/{university_id}/positions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * История изменений позиции
+         * @description Текущее место, предыдущее, динамика за неделю и вся история (ТЗ 3.6).
+         */
+        get: operations["read_positions_api_v1_tracker__university_id__positions_get"];
+        put?: never;
+        /**
+         * Ручной ввод текущей позиции
+         * @description Человек называет своё место сам (ТЗ 3.5).
+         *
+         *     Каждый ввод — новая строка истории, а не замена предыдущей: движение по
+         *     списку и есть то, ради чего блок существует.
+         */
+        post: operations["save_position_api_v1_tracker__university_id__positions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/universities": {
         parameters: {
             query?: never;
@@ -473,6 +523,58 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** PositionEntryOut */
+        PositionEntryOut: {
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /** Estimated Passing Score */
+            estimated_passing_score: number | null;
+            /** Position */
+            position: number;
+        };
+        /**
+         * PositionIn
+         * @description Ручной ввод места (ТЗ 3.5).
+         */
+        PositionIn: {
+            /** Position */
+            position: number;
+        };
+        /**
+         * PositionsOut
+         * @description История позиции по одному вузу (ТЗ 3.5, 3.6).
+         */
+        PositionsOut: {
+            /** Checked At */
+            checked_at: string | null;
+            direction: components["schemas"]["TrackedDirectionOut"] | null;
+            /** Estimated Passing Score */
+            estimated_passing_score: number | null;
+            /** History */
+            history: components["schemas"]["PositionEntryOut"][];
+            /** Improvement */
+            improvement: number | null;
+            /**
+             * Max Position
+             * @default 9999
+             */
+            max_position: number;
+            /**
+             * Min Position
+             * @default 1
+             */
+            min_position: number;
+            /** Position */
+            position: number | null;
+            /** Previous Position */
+            previous_position: number | null;
+            university: components["schemas"]["TrackedUniversityOut"];
+            /** Week */
+            week: components["schemas"]["WeekPointOut"][];
+        };
         /**
          * ProfileAccessOut
          * @description Какие разделы открыты. Считает сервер (ТЗ 3).
@@ -620,10 +722,48 @@ export interface components {
             /** Direction */
             direction?: string | null;
         };
+        /** TrackedDirectionOut */
+        TrackedDirectionOut: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+        };
+        /** TrackedItemOut */
+        TrackedItemOut: {
+            direction: components["schemas"]["TrackedDirectionOut"] | null;
+            /** Position */
+            position: number | null;
+            university: components["schemas"]["TrackedUniversityOut"];
+        };
+        /** TrackedListOut */
+        TrackedListOut: {
+            /** Items */
+            items: components["schemas"]["TrackedItemOut"][];
+            /** Total */
+            total: number;
+        };
         /** TrackedOut */
         TrackedOut: {
             direction: components["schemas"]["DirectionOut"] | null;
             university: components["schemas"]["UniversityBriefOut"];
+        };
+        /**
+         * TrackedUniversityOut
+         * @description Вуз в списке отслеживаемых.
+         *
+         *     Своя схема, а не импорт из чужого домена: домены не импортируют схемы друг
+         *     друга (тех. ТЗ 1.1).
+         */
+        TrackedUniversityOut: {
+            /** Admission Deadline */
+            admission_deadline: string | null;
+            /** City */
+            city: string;
+            /** Id */
+            id: number;
+            /** Short Name */
+            short_name: string;
         };
         /**
          * UniversityBriefOut
@@ -753,6 +893,13 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** WeekPointOut */
+        WeekPointOut: {
+            /** Position */
+            position: number | null;
+            /** Weekday */
+            weekday: string;
         };
     };
     responses: never;
@@ -895,6 +1042,106 @@ export interface operations {
                 };
             };
             /** @description Направления с таким кодом нет */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_tracked_api_v1_tracker_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackedListOut"];
+                };
+            };
+        };
+    };
+    read_positions_api_v1_tracker__university_id__positions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                university_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PositionsOut"];
+                };
+            };
+            /** @description Этот вуз пользователь не отслеживает */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_position_api_v1_tracker__university_id__positions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                university_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PositionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PositionsOut"];
+                };
+            };
+            /** @description Этот вуз пользователь не отслеживает */
             404: {
                 headers: {
                     [name: string]: unknown;

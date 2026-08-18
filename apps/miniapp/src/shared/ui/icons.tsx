@@ -65,3 +65,20 @@ export function ChevronRightIcon({ size = 17, className }: IconProps) {
     </svg>
   );
 }
+
+export function ArrowUpIcon({ size = 15, className }: IconProps) {
+  return (
+    <svg {...svgProps(size)} className={className}>
+      <path d="M12 19V5M5 12l7-7 7 7" />
+    </svg>
+  );
+}
+
+export function BellIcon({ size = 17, className }: IconProps) {
+  return (
+    <svg {...svgProps(size)} className={className}>
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+    </svg>
+  );
+}
