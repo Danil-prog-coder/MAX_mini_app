@@ -31,6 +31,9 @@ TASK_MARKER: Final = "#task:"
 #: Заведомо грубые списки: заглушке хватает, модели они не нужны.
 _REJECT_WORDS: Final = ("идиот", "тупые", "ненавижу", "заткнись")
 _SPAM_WORDS: Final = ("куплю", "продам", "телеграм-канал", "заработок", "http://", "https://")
+#: Слова, по которым заглушка относит обращение к поломке или к идее.
+_BUG_WORDS: Final = ("не работает", "ошибка", "падает", "не открывается", "баг", "сломал")
+_IDEA_WORDS: Final = ("предлаг", "идея", "хорошо бы", "добавьте", "сделайте")
 #: Телефон и почта — персональные данные, но в вопросе бывают и по делу.
 _PERSONAL_DATA: Final = re.compile(r"(\+7\d{10}|\b8\d{10}\b|[\w.-]+@[\w.-]+\.\w+)")
 
@@ -60,6 +63,8 @@ class MockProvider:
         task = self._task_of(prompt)
         if task == "moderation":
             return self._completion(self._moderate(prompt), prompt)
+        if task == "classification":
+            return self._completion(self._classify(prompt), prompt)
 
         digest = blake2s(
             f"{prompt}|{max_tokens}|{temperature}".encode(),
@@ -96,6 +101,17 @@ class MockProvider:
         if _PERSONAL_DATA.search(text):
             return "review\nв тексте похоже на телефон или почту"
         return "clean\nнарушений не найдено"
+
+    @staticmethod
+    def _classify(prompt: str) -> str:
+        """Категория по спискам слов. Правдоподобно, но моделью не является."""
+        quoted = _QUOTED.search(prompt)
+        lowered = (quoted.group(1) if quoted else prompt).lower()
+        if any(word in lowered for word in _BUG_WORDS):
+            return "bug"
+        if any(word in lowered for word in _IDEA_WORDS):
+            return "idea"
+        return "other"
 
     @classmethod
     def _estimate_tokens(cls, text: str) -> int:

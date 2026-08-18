@@ -31,7 +31,7 @@ health_router = APIRouter(tags=["service"])
 
 # Внутренние эндпоинты тех. ТЗ 5. Появляются вместе с блоками, которым нужны:
 # `/internal/ai/career-explanation` — с блоком 1, `moderate-question` — с
-# блоком 5. Последний (`classify-ticket`) добавляется с блоком 8.
+# блоком 5, `classify-ticket` — с блоком 8. Все три из тех. ТЗ 5 на месте.
 internal_router = APIRouter(prefix="/internal/ai", tags=["ai"])
 
 
@@ -68,6 +68,12 @@ MODERATION_MAX_TOKENS = 64
 MODERATION_TEMPERATURE = 0.0
 
 
+#: Потолок длины обращения и параметры классификации.
+CLASSIFY_MAX_TEXT = 4000
+CLASSIFY_MAX_TOKENS = 16
+CLASSIFY_TEMPERATURE = 0.0
+
+
 #: Три исхода модерации (уточнение У18). Имена совпадают с тем, что просит
 #: шаблон промпта: `clean` — публикуем, `reject` — отклоняем, `review` — в
 #: очередь ручной модерации.
@@ -93,6 +99,26 @@ class ModerationResponse(BaseModel):
     verdict: ModerationVerdict
     #: Короткая причина от модели. Показывается ручному модератору в админке.
     reason: str
+    provider: str
+    total_tokens: int
+
+
+class ClassifyRequest(BaseModel):
+    """Запрос на классификацию обращения в поддержку (тех. ТЗ 3.9, 5)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=CLASSIFY_MAX_TEXT)
+    #: Коды категорий с подписями. Список задаёт вызывающая сторона: домен
+    #: знает свои категории, а шлюз не обязан их дублировать.
+    categories: dict[str, str] = Field(min_length=1, max_length=16)
+
+
+class ClassifyResponse(BaseModel):
+    """Категория обращения вместе с расходом токенов."""
+
+    #: Код из переданного списка. `null` — модель ответила не тем.
+    category: str | None
     provider: str
     total_tokens: int
 
@@ -278,6 +304,64 @@ async def moderate_question(
     return ModerationResponse(
         verdict=verdict,
         reason=reason,
+        provider=completion.provider,
+        total_tokens=completion.total_tokens,
+    )
+
+
+@internal_router.post(
+    "/classify-ticket",
+    response_model=ClassifyResponse,
+    summary="Классификация обращения в поддержку",
+)
+async def classify_ticket(
+    payload: ClassifyRequest,
+    provider: ProviderDep,
+    settings: SettingsDep,
+) -> ClassifyResponse:
+    """Относит обращение к одной из категорий (тех. ТЗ 3.9).
+
+    Это подстраховка, а не решение: отписку пользователю выбирает домен из
+    заготовленного пула, и шлюз на неё не влияет. Поэтому неразобранный ответ
+    возвращается как `null`, а не как выдуманная категория.
+    """
+    prompt = render(
+        "classify_ticket.jinja",
+        text=payload.text,
+        # Пары, а не словарь: порядок в промпте должен быть стабильным, иначе
+        # одинаковые запросы дают разные промпты и мимо кэша.
+        categories=sorted(payload.categories.items()),
+    )
+    try:
+        completion = await provider.complete(
+            prompt,
+            max_tokens=CLASSIFY_MAX_TOKENS,
+            temperature=CLASSIFY_TEMPERATURE,
+        )
+    except LLMUnavailableError as error:
+        log.warning("llm_unavailable", endpoint="classify-ticket", provider=provider.name)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="модель недоступна",
+        ) from error
+
+    head = (
+        completion.text.strip().splitlines()[0].strip().lower() if completion.text.strip() else ""
+    )
+    category = head if head in payload.categories else None
+    if category is None:
+        log.warning("llm_unexpected_category", endpoint="classify-ticket", answer=head[:64])
+
+    log.info(
+        "llm_completed",
+        endpoint="classify-ticket",
+        provider=completion.provider,
+        category=category,
+        total_tokens=completion.total_tokens,
+        environment=settings.environment.value,
+    )
+    return ClassifyResponse(
+        category=category,
         provider=completion.provider,
         total_tokens=completion.total_tokens,
     )
