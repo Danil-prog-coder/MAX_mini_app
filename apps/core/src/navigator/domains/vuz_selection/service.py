@@ -59,6 +59,7 @@ __all__ = [
     "UniversityCard",
     "UniversityNotFound",
     "get_direction",
+    "get_tracked",
     "is_tracked",
     "list_directions",
     "list_tracked",
@@ -68,6 +69,7 @@ __all__ = [
     "sync_directions",
     "sync_programs",
     "track_university",
+    "tracked_budget_places",
     "university_card",
 ]
 
@@ -311,6 +313,28 @@ async def track_university(
 async def list_tracked(user: users.User) -> list[TrackedVuz]:
     """Отслеживаемые вузы пользователя. Читает блок 3 (ТЗ 3.2)."""
     return await TrackedVuz.filter(user_id=user.id).prefetch_related("direction")
+
+
+async def get_tracked(user: users.User, university_id: int) -> TrackedVuz | None:
+    """Отслеживание конкретного вуза. Читает блок 3 (ТЗ 3.4)."""
+    return await TrackedVuz.get_or_none(
+        user_id=user.id, university_id=university_id
+    ).prefetch_related("direction")
+
+
+async def tracked_budget_places(tracked: TrackedVuz) -> int | None:
+    """Бюджетных мест на программе, ради которой вуз отслеживают.
+
+    Блоку 3 это число нужно как ориентировочная граница списка: ниже последнего
+    бюджетного места в прошлом году не проходили. `None`, если направление не
+    указано или программы с таким сочетанием в справочнике нет.
+    """
+    if tracked.direction_id is None:
+        return None
+    program = await AdmissionProgram.get_or_none(
+        university_id=tracked.university_id, direction_id=tracked.direction_id
+    )
+    return None if program is None else program.budget_places
 
 
 async def is_tracked(user: users.User, university_id: int) -> bool:
