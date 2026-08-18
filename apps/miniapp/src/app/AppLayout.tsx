@@ -13,6 +13,7 @@
 import { Link, Outlet, useLocation, useMatches } from 'react-router-dom';
 
 import { HomeIcon, UserIcon } from '@/shared/ui/icons';
+import { NotificationsButton } from '@/shared/ui/NotificationsButton';
 
 import type { ScreenId } from './screens';
 import { useNativeBackButton } from './useNativeBackButton';
@@ -72,6 +73,10 @@ export function AppLayout() {
             <HomeIcon />
             Главное меню
           </Link>
+          {/* Лента уведомлений (уточнение У25). Кнопка в панели, а не на
+              отдельном экране: она должна быть видна отовсюду вместе с
+              бейджем непрочитанных. */}
+          <NotificationsButton />
           <Link
             to="/profile"
             aria-label="Мой профиль"

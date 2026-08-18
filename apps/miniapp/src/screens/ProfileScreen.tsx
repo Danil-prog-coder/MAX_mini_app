@@ -14,6 +14,11 @@ import { Link } from 'react-router-dom';
 
 import { useLatestResult } from '@/shared/api/careerTest';
 import {
+  useNotificationSettings,
+  useUpdateNotificationSettings,
+  type NotificationKind,
+} from '@/shared/api/notifications';
+import {
   STATUS_LABELS,
   useConfirmVerification,
   useProfile,
@@ -191,6 +196,8 @@ function ProfileView({
       </div>
 
       <VerificationRow profile={profile} onConfirm={verify} />
+
+      <NotificationSettingsSection />
 
       {update.isError && <Hint>Не удалось сохранить профиль. Попробуйте ещё раз.</Hint>}
 
@@ -405,3 +412,77 @@ function Hint({ children }: { readonly children: React.ReactNode }) {
 function SheetHint({ children }: { readonly children: React.ReactNode }) {
   return <p className="flex-none text-[13px] leading-[1.45] text-neutral-700">{children}</p>;
 }
+
+/**
+ * Настройки уведомлений (уточнение У9).
+ *
+ * Час ежедневной сводки выбирается чипами — тем же приёмом, что и срок
+ * дедлайна: экрана под это в макете нет, а компонент уже есть.
+ */
+function NotificationSettingsSection() {
+  const settings = useNotificationSettings();
+  const update = useUpdateNotificationSettings();
+
+  const data = settings.data;
+  if (data === undefined) return null;
+
+  const muted = new Set(data.kinds.filter((kind) => kind.muted).map((kind) => kind.code));
+
+  const toggle = (code: NotificationKind) => {
+    const next = new Set(muted);
+    if (next.has(code)) next.delete(code);
+    else next.add(code);
+    update.mutate({ muted_kinds: [...next] });
+  };
+
+  return (
+    <>
+      <div className="mt-5 text-[11px] font-bold tracking-[0.2em] text-neutral-600">
+        УВЕДОМЛЕНИЯ
+      </div>
+
+      <p className="mt-3 text-[12px] text-neutral-600">Сводка расписания приходит в</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {DIGEST_HOURS.map((hour) => (
+          <Button
+            key={hour}
+            variant={hour === data.digest_hour ? 'dark' : 'outline'}
+            aria-pressed={hour === data.digest_hour}
+            disabled={update.isPending}
+            onClick={() => {
+              update.mutate({ digest_hour: hour });
+            }}
+            className="px-4 py-[10px] text-[13px] disabled:opacity-60"
+          >
+            {String(hour).padStart(2, '0')}:00
+          </Button>
+        ))}
+      </div>
+
+      <div className="mt-3 flex flex-col gap-2">
+        {data.kinds.map((kind) => (
+          <label
+            key={kind.code}
+            className="flex items-center gap-3 rounded-[22px] border-[1.5px] border-neutral-400 px-[18px] py-3"
+          >
+            <input
+              type="checkbox"
+              checked={!kind.muted}
+              disabled={update.isPending}
+              onChange={() => {
+                toggle(kind.code);
+              }}
+              className="h-[18px] w-[18px] flex-none accent-[var(--color-accent)]"
+            />
+            <span className="flex-1 text-[14px]">{kind.label}</span>
+          </label>
+        ))}
+      </div>
+
+      {update.isError && <Hint>Не удалось сохранить настройки уведомлений.</Hint>}
+    </>
+  );
+}
+
+/** Часы для чипов сводки: утро, день и вечер — больше выбора не нужно. */
+const DIGEST_HOURS = [7, 8, 9, 12, 18, 20] as const;

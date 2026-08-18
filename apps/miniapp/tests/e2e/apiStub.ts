@@ -365,6 +365,9 @@ interface StubState {
   questions: StubQuestion[];
   checkedInToday: boolean;
   rewards: Set<string>;
+  notifications: typeof NOTIFICATIONS;
+  digestHour: number;
+  mutedKinds: Set<string>;
   tickets: {
     id: number;
     category: string;
@@ -377,6 +380,32 @@ interface StubState {
     created_at: string;
   }[];
 }
+
+/** Типы уведомлений с подписями — как их отдаёт настоящий API (уточнение У9). */
+export const NOTIFICATION_KINDS = [
+  { code: 'admission_start', label: 'Старт приёма документов' },
+  { code: 'admission_end', label: 'Окончание приёма документов' },
+  { code: 'position_changed', label: 'Изменилась позиция в списке' },
+  { code: 'schedule_digest', label: 'Ежедневная сводка расписания' },
+  { code: 'deadline_soon', label: 'Скоро дедлайн' },
+  { code: 'question_answered', label: 'Ответили на ваш вопрос' },
+  { code: 'monthly_title', label: 'Статус месяца' },
+  { code: 'support_reply', label: 'Ответ поддержки' },
+];
+
+/** Одно непрочитанное уведомление: бейдж и лента должны быть чем проверять. */
+export const NOTIFICATIONS = [
+  {
+    id: 1,
+    kind: 'deadline_soon',
+    kind_label: 'Скоро дедлайн',
+    title: 'Курсовая завтра',
+    body: 'Курсовая по базам данных — завтра до 18:00.',
+    payload: { screen: 'schedule' },
+    read_at: null as string | null,
+    created_at: '2026-08-18T09:00:00Z',
+  },
+];
 
 /** Типы обращений (ТЗ 8.2) и по одной отписке из каждого пула (ТЗ 8.4). */
 export const SUPPORT_CATEGORIES = [
@@ -624,6 +653,39 @@ function response(method: string, path: string, body: unknown, state: StubState)
     return { total: items.length, items };
   }
 
+  if (method === 'GET' && path === '/api/v1/notifications') {
+    return {
+      total: state.notifications.length,
+      unread: state.notifications.filter((item) => item.read_at === null).length,
+      items: state.notifications,
+    };
+  }
+
+  const read = /^\/api\/v1\/notifications\/(\d+)\/read$/.exec(path);
+  if (method === 'POST' && read) {
+    const item = state.notifications.find((row) => row.id === Number(read[1]));
+    if (item === undefined) return undefined;
+    item.read_at ??= new Date().toISOString();
+    return item;
+  }
+
+  if (path === '/api/v1/notifications/settings') {
+    if (method === 'PATCH') {
+      const patch = body as { digest_hour?: number; muted_kinds?: string[] };
+      if (patch.digest_hour !== undefined) state.digestHour = patch.digest_hour;
+      if (patch.muted_kinds !== undefined) state.mutedKinds = new Set(patch.muted_kinds);
+    }
+    return {
+      digest_hour: state.digestHour,
+      kinds: NOTIFICATION_KINDS.map((kind) => ({
+        ...kind,
+        muted: state.mutedKinds.has(kind.code),
+      })),
+      min_hour: 0,
+      max_hour: 23,
+    };
+  }
+
   if (method === 'GET' && path === '/api/v1/support/categories') return SUPPORT_CATEGORIES;
 
   if (method === 'GET' && path === '/api/v1/support/tickets') {
@@ -864,6 +926,8 @@ export interface StubOptions {
   readonly profile?: Partial<typeof PROFILE>;
   /** Что уже лежит в ленте вопросов на старте теста. */
   readonly questions?: StubQuestion[];
+  /** Что уже лежит в ленте уведомлений на старте теста. */
+  readonly notifications?: typeof NOTIFICATIONS;
 }
 
 export async function installApiStub(page: Page, options: StubOptions = {}): Promise<void> {
@@ -881,6 +945,9 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
     checkedInToday: false,
     rewards: new Set<string>(),
     tickets: [],
+    notifications: options.notifications ?? NOTIFICATIONS.map((item) => ({ ...item })),
+    digestHour: 8,
+    mutedKinds: new Set<string>(),
   };
 
   await page.route('**/api/v1/**', async (route: Route) => {

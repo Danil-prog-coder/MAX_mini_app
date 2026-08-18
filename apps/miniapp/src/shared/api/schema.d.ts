@@ -316,6 +316,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Лента уведомлений
+         * @description Очередь уведомлений и счётчик непрочитанных (уточнение У25).
+         */
+        get: operations["read_notifications_api_v1_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Настройки уведомлений
+         * @description Час сводки и переключатели типов (уточнение У9).
+         */
+        get: operations["read_settings_api_v1_notifications_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Изменить настройки
+         * @description Пропущенное поле не меняется.
+         */
+        patch: operations["update_settings_api_v1_notifications_settings_patch"];
+        trace?: never;
+    };
+    "/api/v1/notifications/{notification_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Отметить прочитанным
+         * @description Повторное нажатие ничего не меняет: время прочтения — первое.
+         */
+        post: operations["mark_read_api_v1_notifications__notification_id__read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/schedule/deadlines": {
         parameters: {
             query?: never;
@@ -981,6 +1045,17 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * KindOut
+         * @description Тип уведомления с подписью: переключатели в настройках (уточнение У9).
+         */
+        KindOut: {
+            code: components["schemas"]["NotificationKind"];
+            /** Label */
+            label: string;
+            /** Muted */
+            muted: boolean;
+        };
         /** LeaderboardOut */
         LeaderboardOut: {
             me: components["schemas"]["LeaderboardRowOut"] | null;
@@ -1106,6 +1181,44 @@ export interface components {
             total: number;
             /** University Address */
             university_address: string;
+        };
+        /**
+         * NotificationKind
+         * @description За что уведомление. Тип нужен и ленте, и настройкам (уточнение У9).
+         * @enum {string}
+         */
+        NotificationKind: "admission_start" | "admission_end" | "position_changed" | "schedule_digest" | "deadline_soon" | "question_answered" | "monthly_title" | "support_reply";
+        /** NotificationOut */
+        NotificationOut: {
+            /** Body */
+            body: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            kind: components["schemas"]["NotificationKind"];
+            /** Kind Label */
+            kind_label: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Read At */
+            read_at: string | null;
+            /** Title */
+            title: string;
+        };
+        /** NotificationsOut */
+        NotificationsOut: {
+            /** Items */
+            items: components["schemas"]["NotificationOut"][];
+            /** Total */
+            total: number;
+            /** Unread */
+            unread: number;
         };
         /**
          * PlaceKind
@@ -1295,6 +1408,36 @@ export interface components {
             /** Points Granted */
             points_granted: boolean;
             result: components["schemas"]["TestResultOut"];
+        };
+        /**
+         * SettingsIn
+         * @description Частичное обновление настроек. Пропущенное поле не меняется.
+         */
+        SettingsIn: {
+            /** Digest Hour */
+            digest_hour?: number | null;
+            /** Muted Kinds */
+            muted_kinds?: components["schemas"]["NotificationKind"][] | null;
+        };
+        /**
+         * SettingsOut
+         * @description Настройки уведомлений (уточнение У9).
+         */
+        SettingsOut: {
+            /** Digest Hour */
+            digest_hour: number;
+            /** Kinds */
+            kinds: components["schemas"]["KindOut"][];
+            /**
+             * Max Hour
+             * @default 23
+             */
+            max_hour: number;
+            /**
+             * Min Hour
+             * @default 0
+             */
+            min_hour: number;
         };
         /**
          * SpotOut
@@ -2128,6 +2271,117 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TopicOut"][];
+                };
+            };
+        };
+    };
+    read_notifications_api_v1_notifications_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsOut"];
+                };
+            };
+        };
+    };
+    read_settings_api_v1_notifications_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+        };
+    };
+    update_settings_api_v1_notifications_settings_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_read_api_v1_notifications__notification_id__read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationOut"];
+                };
+            };
+            /** @description Уведомления с таким идентификатором нет */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
