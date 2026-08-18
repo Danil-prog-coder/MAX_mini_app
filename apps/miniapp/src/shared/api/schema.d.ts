@@ -116,6 +116,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mentor-qa/answers/{answer_id}/like": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Лайк ответа
+         * @description Переключает лайк (ТЗ 5.8). Баллов не даёт (уточнение У22).
+         */
+        post: operations["toggle_like_api_v1_mentor_qa_answers__answer_id__like_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mentor-qa/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Лента вуза
+         * @description Вопросы вуза с ответами (ТЗ 5.6). Открыта всем (уточнение У15).
+         */
+        get: operations["read_feed_api_v1_mentor_qa_questions_get"];
+        put?: never;
+        /**
+         * Задать вопрос
+         * @description Публикует вопрос анонимно после модерации (ТЗ 5.4, 5.5, уточнение У18).
+         *
+         *     Спросить может кто угодно и в ленту любого вуза (уточнение У15) — в этом
+         *     весь смысл блока для абитуриента.
+         */
+        post: operations["ask_api_v1_mentor_qa_questions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mentor-qa/questions/{question_id}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ответить на вопрос
+         * @description Публикует ответ и начисляет +25 (ТЗ 5.6, уточнение У21).
+         *
+         *     Отвечать вправе только привязанный к этому вузу и прошедший верификацию
+         *     (уточнения У15, У17).
+         */
+        post: operations["add_answer_api_v1_mentor_qa_questions__question_id__answers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mentor-qa/topics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Темы вопросов
+         * @description Три темы с подписями (ТЗ 5.2). Подписи приходят с сервера: они же уходят
+         *     в промпт модерации, и расходиться им нельзя.
+         */
+        get: operations["read_topics_api_v1_mentor_qa_topics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/schedule/deadlines": {
         parameters: {
             query?: never;
@@ -494,6 +585,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AnswerIn */
+        AnswerIn: {
+            /** Text */
+            text: string;
+        };
         /** AnswerOptionOut */
         AnswerOptionOut: {
             /** Id */
@@ -502,6 +598,48 @@ export interface components {
             order: number;
             /** Text */
             text: string;
+        };
+        /** AnswerOut */
+        AnswerOut: {
+            /** Author Name */
+            author_name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Liked By Me */
+            liked_by_me: boolean;
+            /** Likes Count */
+            likes_count: number;
+            /** Text */
+            text: string;
+        };
+        /**
+         * AskIn
+         * @description Новый вопрос (ТЗ 5.2–5.4).
+         */
+        AskIn: {
+            /** Text */
+            text: string;
+            topic: components["schemas"]["QuestionTopic"];
+            /** University Id */
+            university_id: number;
+        };
+        /**
+         * AskedOut
+         * @description Что стало с отправленным вопросом (уточнение У18).
+         */
+        AskedOut: {
+            /** Id */
+            id: number;
+            /** Moderation Reason */
+            moderation_reason: string;
+            moderation_status: components["schemas"]["ModerationStatus"];
+            /** Published */
+            published: boolean;
         };
         /**
          * BindGroupIn
@@ -603,6 +741,39 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** FeedOut */
+        FeedOut: {
+            /** Items */
+            items: components["schemas"]["FeedQuestionOut"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * FeedQuestionOut
+         * @description Вопрос в ленте (ТЗ 5.5).
+         *
+         *     Автора здесь нет: вопрос публикуется анонимно. Поле `mine` говорит самому
+         *     автору, что это его вопрос, и никому больше.
+         */
+        FeedQuestionOut: {
+            /** Answers */
+            answers: components["schemas"]["AnswerOut"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Mine */
+            mine: boolean;
+            moderation_status: components["schemas"]["ModerationStatus"];
+            /** Text */
+            text: string;
+            topic: components["schemas"]["QuestionTopic"];
+            /** Topic Label */
+            topic_label: string;
+        };
         /** GroupOut */
         GroupOut: {
             /** Name */
@@ -636,6 +807,13 @@ export interface components {
             starts_at: string;
             /** Title */
             title: string;
+        };
+        /** LikeOut */
+        LikeOut: {
+            /** Liked */
+            liked: boolean;
+            /** Likes Count */
+            likes_count: number;
         };
         /** LivenessResponse */
         LivenessResponse: {
@@ -673,6 +851,15 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * ModerationStatus
+         * @description Три исхода модерации (уточнение У18).
+         *
+         *     `pending` — исходное значение из тех. ТЗ 3.6: вопрос создан, вердикта ещё
+         *     нет. Остальные три — то, чем модерация заканчивается.
+         * @enum {string}
+         */
+        ModerationStatus: "pending" | "published" | "rejected" | "manual_review";
         /** PositionEntryOut */
         PositionEntryOut: {
             /**
@@ -783,6 +970,20 @@ export interface components {
             /** University Id */
             university_id?: number | null;
         };
+        /**
+         * PublishedAnswerOut
+         * @description Опубликованный ответ вместе с начислением (уточнение У21: +25).
+         */
+        PublishedAnswerOut: {
+            /** Id */
+            id: number;
+            /** Points Balance */
+            points_balance: number;
+            /** Points Granted */
+            points_granted: boolean;
+            /** Text */
+            text: string;
+        };
         /** QuestionOut */
         QuestionOut: {
             /** Id */
@@ -794,6 +995,12 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * QuestionTopic
+         * @description Тема вопроса (ТЗ 5.2). Три и ровно три — как в макете.
+         * @enum {string}
+         */
+        QuestionTopic: "admission" | "study" | "student_life";
         /** ReadinessResponse */
         ReadinessResponse: {
             /** Dependencies */
@@ -883,6 +1090,15 @@ export interface components {
             group_name: string | null;
             /** Lessons */
             lessons: components["schemas"]["LessonOut"][];
+        };
+        /**
+         * TopicOut
+         * @description Тема вопроса с подписью: чипы в интерфейсе рисуются по этому списку.
+         */
+        TopicOut: {
+            code: components["schemas"]["QuestionTopic"];
+            /** Label */
+            label: string;
         };
         /** TrackIn */
         TrackIn: {
@@ -1222,6 +1438,183 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    toggle_like_api_v1_mentor_qa_answers__answer_id__like_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                answer_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LikeOut"];
+                };
+            };
+            /** @description Ответа с таким идентификатором нет */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_feed_api_v1_mentor_qa_questions_get: {
+        parameters: {
+            query: {
+                vuz_id: number;
+                topic?: components["schemas"]["QuestionTopic"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ask_api_v1_mentor_qa_questions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AskIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AskedOut"];
+                };
+            };
+            /** @description Вуза с таким идентификатором нет */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Текст короче или длиннее допустимого */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    add_answer_api_v1_mentor_qa_questions__question_id__answers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                question_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishedAnswerOut"];
+                };
+            };
+            /** @description Нет права отвечать в этой ленте */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Вопроса с таким идентификатором нет */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_topics_api_v1_mentor_qa_topics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicOut"][];
                 };
             };
         };

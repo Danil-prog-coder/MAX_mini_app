@@ -54,7 +54,7 @@ class AnswerOut(BaseModel):
         )
 
 
-class QuestionOut(BaseModel):
+class FeedQuestionOut(BaseModel):
     """Вопрос в ленте (ТЗ 5.5).
 
     Автора здесь нет: вопрос публикуется анонимно. Поле `mine` говорит самому
@@ -88,11 +88,11 @@ class QuestionOut(BaseModel):
 
 class FeedOut(BaseModel):
     total: int
-    items: list[QuestionOut]
+    items: list[FeedQuestionOut]
 
     @classmethod
     def of(cls, items: list[FeedQuestion]) -> Self:
-        return cls(total=len(items), items=[QuestionOut.of(item) for item in items])
+        return cls(total=len(items), items=[FeedQuestionOut.of(item) for item in items])
 
 
 class AskIn(BaseModel):
