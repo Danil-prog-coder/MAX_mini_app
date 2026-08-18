@@ -97,6 +97,108 @@ class TestScores:
         assert response.json()["scores"] == {}
 
 
+class TestSubjects:
+    async def test_subjects_come_from_the_server(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        """Клиент не выдумывает список: иначе он разойдётся со справочником."""
+        response = await api_client.get("/api/v1/vuz-selection/subjects", headers=as_user("u-1"))
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["subjects"] == list(service.EXAM_SUBJECTS)
+        assert body["min_subjects"] == service.MIN_SUBJECTS
+        assert (body["min_score"], body["max_score"]) == (
+            service.MIN_EXAM_SCORE,
+            service.MAX_EXAM_SCORE,
+        )
+
+    async def test_every_required_subject_is_selectable(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        """Предмет, которого нет в мультивыборе, делал бы направление недостижимым."""
+        await seed_all(integration_settings)
+
+        for direction in await service.list_directions():
+            for subject in direction.required_subjects:
+                assert subject in service.EXAM_SUBJECTS
+
+
+class TestUniversityCard:
+    async def test_card_shows_programs_with_chances(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        await seed_all(integration_settings)
+        await save_scores(api_client, TECH_SCORES)
+        item = (await matches(api_client))["items"][0]
+
+        response = await api_client.get(
+            f"/api/v1/vuz-selection/universities/{item['university']['id']}",
+            headers=as_user("u-1"),
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["university"]["id"] == item["university"]["id"]
+        assert body["programs"]
+        assert body["tracked"] is False
+        assert "passing_score" in body["demo_fields"]
+
+    async def test_card_opens_without_scores(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        """ТЗ 1.1: по прямой ссылке карточка тоже открывается, а не падает."""
+        await seed_all(integration_settings)
+        university = (await users.list_universities())[0]
+
+        response = await api_client.get(
+            f"/api/v1/vuz-selection/universities/{university.id}", headers=as_user("u-1")
+        )
+
+        assert response.status_code == 200
+        assert response.json()["programs"] == []
+
+    async def test_card_holds_only_this_university(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        await seed_all(integration_settings)
+        await save_scores(api_client, TECH_SCORES)
+        university = (await matches(api_client))["items"][0]["university"]
+
+        response = await api_client.get(
+            f"/api/v1/vuz-selection/universities/{university['id']}", headers=as_user("u-1")
+        )
+
+        ids = {program["university"]["id"] for program in response.json()["programs"]}
+        assert ids == {university["id"]}
+
+    async def test_tracked_flag_follows_the_tracker(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        await seed_all(integration_settings)
+        university = (await users.list_universities())[0]
+        await api_client.post(
+            f"/api/v1/vuz-selection/track/{university.id}", headers=as_user("u-1"), json={}
+        )
+
+        response = await api_client.get(
+            f"/api/v1/vuz-selection/universities/{university.id}", headers=as_user("u-1")
+        )
+
+        assert response.json()["tracked"] is True
+
+    async def test_unknown_university_is_404(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        await seed_all(integration_settings)
+
+        response = await api_client.get(
+            "/api/v1/vuz-selection/universities/999999", headers=as_user("u-1")
+        )
+
+        assert response.status_code == 404
+
+
 class TestMatches:
     async def test_no_scores_give_no_matches(
         self, api_client: httpx.AsyncClient, integration_settings: Settings

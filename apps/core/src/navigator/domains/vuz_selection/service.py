@@ -56,8 +56,10 @@ __all__ = [
     "Profile",
     "ProgramsSync",
     "TrackedVuz",
+    "UniversityCard",
     "UniversityNotFound",
     "get_direction",
+    "is_tracked",
     "list_directions",
     "list_tracked",
     "matches_for",
@@ -66,6 +68,7 @@ __all__ = [
     "sync_directions",
     "sync_programs",
     "track_university",
+    "university_card",
 ]
 
 #: Диапазон балла ЕГЭ (ТЗ 2.3). Клиент его зеркалит, но источник истины здесь.
@@ -217,17 +220,28 @@ class MatchedProgram:
     match: ProgramMatch
 
 
-async def matches_for(user: users.User) -> list[MatchedProgram]:
+async def matches_for(
+    user: users.User,
+    *,
+    university_id: int | None = None,
+) -> list[MatchedProgram]:
     """Вузы с метками шанса по сохранённым баллам пользователя.
 
     Направления без полного набора обязательных предметов в выдачу не попадают
     (уточнение У12) — это правило живёт в чистой функции `match_programs`.
+
+    `university_id` сужает выдачу до одного вуза: карточке нужны программы
+    именно этого вуза, а порядок и метки должны совпадать со списком, из
+    которого человек в неё пришёл.
     """
     scores = await read_scores(user)
     if not scores:
         return []
 
-    programs = await AdmissionProgram.all().prefetch_related("direction")
+    query = AdmissionProgram.all()
+    if university_id is not None:
+        query = query.filter(university_id=university_id)
+    programs = await query.prefetch_related("direction")
     universities = {university.id: university for university in await users.list_universities()}
 
     inputs = [
@@ -297,6 +311,38 @@ async def track_university(
 async def list_tracked(user: users.User) -> list[TrackedVuz]:
     """Отслеживаемые вузы пользователя. Читает блок 3 (ТЗ 3.2)."""
     return await TrackedVuz.filter(user_id=user.id).prefetch_related("direction")
+
+
+async def is_tracked(user: users.User, university_id: int) -> bool:
+    """Стоит ли вуз уже в отслеживаемых: карточка меняет надпись на кнопке."""
+    return await TrackedVuz.filter(user_id=user.id, university_id=university_id).exists()
+
+
+# ─── карточка вуза (ТЗ 2.6) ──────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class UniversityCard:
+    """Всё, что показывает карточка вуза, одним запросом."""
+
+    university: users.University
+    #: Программы этого вуза с метками шанса. Пусто, если баллы ещё не введены:
+    #: карточка открывается и по прямой ссылке, а шанс без баллов не считается.
+    programs: list[MatchedProgram]
+    tracked: bool
+
+
+async def university_card(user: users.User, university_id: int) -> UniversityCard:
+    """Карточка вуза: цифры приёмной кампании плюс шансы по баллам (ТЗ 2.6)."""
+    university = await users.get_university_or_none(university_id)
+    if university is None:
+        raise UniversityNotFound(f"вуз {university_id} не найден")
+
+    return UniversityCard(
+        university=university,
+        programs=await matches_for(user, university_id=university_id),
+        tracked=await is_tracked(user, university_id),
+    )
 
 
 # ─── заливка программ приёмной кампании ──────────────────────────────────────

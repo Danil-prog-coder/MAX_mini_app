@@ -10,12 +10,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from navigator.domains.users import service as users
 from navigator.domains.vuz_selection.models import Direction
 from navigator.domains.vuz_selection.service import (
+    EXAM_SUBJECTS,
     MAX_EXAM_SCORE,
     MIN_EXAM_SCORE,
     MIN_SUBJECTS,
     Chance,
     MatchedProgram,
     TrackedVuz,
+    UniversityCard,
 )
 
 #: Поля с демонстрационными значениями (уточнения У4, Д3).
@@ -54,6 +56,21 @@ class UniversityBriefOut(BaseModel):
             has_dormitory=university.has_dormitory,
             admission_deadline=university.admission_deadline,
         )
+
+
+class SubjectsOut(BaseModel):
+    """Список предметов и границы проверки — чтобы клиент их не выдумывал.
+
+    Экран подбора рисует ровно эти кнопки и проверяет ровно эти границы. Свой
+    список на клиенте разошёлся бы со справочником направлений в первый же раз,
+    когда справочник поменяется (ТЗ 2.2, 2.3).
+    """
+
+    subjects: list[str] = Field(default_factory=lambda: list(EXAM_SUBJECTS))
+    #: Минимум предметов, при котором кнопка подбора становится активной.
+    min_subjects: int = MIN_SUBJECTS
+    min_score: int = MIN_EXAM_SCORE
+    max_score: int = MAX_EXAM_SCORE
 
 
 class DirectionOut(BaseModel):
@@ -161,4 +178,27 @@ class TrackedOut(BaseModel):
         return cls(
             university=UniversityBriefOut.of(university),
             direction=DirectionOut.of(direction) if direction is not None else None,
+        )
+
+
+class UniversityCardOut(BaseModel):
+    """Карточка вуза (ТЗ 2.6, 2.7)."""
+
+    university: UniversityBriefOut
+    #: Программы этого вуза с метками шанса. Пусто, если баллы ещё не введены:
+    #: карточка открывается и по прямой ссылке.
+    programs: list[MatchOut]
+    #: Стоит ли вуз в отслеживаемых: от этого зависит надпись на кнопке.
+    tracked: bool
+    demo_fields: list[str] = Field(
+        default_factory=lambda: list(ADMISSION_DEMO_FIELDS),
+        description="Поля с демонстрационными значениями, а не официальными данными",
+    )
+
+    @classmethod
+    def of(cls, card: UniversityCard) -> Self:
+        return cls(
+            university=UniversityBriefOut.of(card.university),
+            programs=[MatchOut.of(program) for program in card.programs],
+            tracked=card.tracked,
         )

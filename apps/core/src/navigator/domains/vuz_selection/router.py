@@ -12,11 +12,19 @@ from navigator.domains.vuz_selection.schemas import (
     ExamScoresIn,
     ExamScoresOut,
     MatchesOut,
+    SubjectsOut,
     TrackedOut,
     TrackIn,
+    UniversityCardOut,
 )
 
 router = APIRouter(prefix="/vuz-selection", tags=["vuz-selection"])
+
+
+@router.get("/subjects", response_model=SubjectsOut, summary="Предметы ЕГЭ и границы проверки")
+async def read_subjects() -> SubjectsOut:
+    """Список предметов для мультивыбора (ТЗ 2.2) и границы балла (ТЗ 2.3)."""
+    return SubjectsOut()
 
 
 @router.get("/directions", response_model=list[DirectionOut], summary="Справочник направлений")
@@ -71,3 +79,22 @@ async def track(user: CurrentUser, university_id: int, payload: TrackIn) -> Trac
 
     university = await users.get_university(university_id)
     return TrackedOut.of(tracked, university)
+
+
+@router.get(
+    "/universities/{university_id}",
+    response_model=UniversityCardOut,
+    summary="Карточка вуза",
+    responses={404: {"description": "Вуза с таким идентификатором нет"}},
+)
+async def read_university_card(user: CurrentUser, university_id: int) -> UniversityCardOut:
+    """Бюджет, стоимость, общежитие, дата окончания приёма и шансы (ТЗ 2.6).
+
+    Отвечает и без введённых баллов: карточка открывается в том числе по
+    прямой ссылке, и тупика на ней быть не должно (ТЗ 1.1).
+    """
+    try:
+        card = await service.university_card(user, university_id)
+    except service.UniversityNotFound as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return UniversityCardOut.of(card)
