@@ -116,6 +116,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/food/nearby": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Точки питания рядом с вузом
+         * @description Топ-5 точек в пешей доступности от вуза (ТЗ 7.4).
+         *
+         *     Геолокация не запрашивается: координаты берутся из справочника вузов
+         *     (ТЗ 7.3), и это же требование запрещает собирать её у человека.
+         */
+        get: operations["read_nearby_api_v1_food_nearby_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/gamification/checkin": {
         parameters: {
             query?: never;
@@ -994,6 +1017,26 @@ export interface components {
          * @enum {string}
          */
         ModerationStatus: "pending" | "published" | "rejected" | "manual_review";
+        /**
+         * NearbyOut
+         * @description Точки рядом с вузом пользователя.
+         */
+        NearbyOut: {
+            /** Demo */
+            demo: boolean;
+            /** Items */
+            items: components["schemas"]["SpotOut"][];
+            /** Total */
+            total: number;
+            /** University Address */
+            university_address: string;
+        };
+        /**
+         * PlaceKind
+         * @description Два вида точек с разными наборами полей (ТЗ 7.5).
+         * @enum {string}
+         */
+        PlaceKind: "shop" | "catering";
         /** PositionEntryOut */
         PositionEntryOut: {
             /**
@@ -1176,6 +1219,38 @@ export interface components {
             /** Points Granted */
             points_granted: boolean;
             result: components["schemas"]["TestResultOut"];
+        };
+        /**
+         * SpotOut
+         * @description Точка питания (ТЗ 7.5, 7.6).
+         *
+         *     Набор полей у магазина и общепита разный, поэтому необязательные поля
+         *     честно необязательные: у магазина нет оценки, у кафе — ассортимента.
+         */
+        SpotOut: {
+            /** Address */
+            address: string;
+            /** Assortment */
+            assortment: string | null;
+            /** Distance Score */
+            distance_score: number;
+            /** Has Bakery */
+            has_bakery: boolean | null;
+            /** Id */
+            id: number;
+            kind: components["schemas"]["PlaceKind"];
+            /** Map Deeplink */
+            map_deeplink: string;
+            /** Menu */
+            menu: string | null;
+            /** Name */
+            name: string;
+            /** Place Type */
+            place_type: string;
+            /** Rating */
+            rating: number | null;
+            /** Walk Minutes */
+            walk_minutes: number;
         };
         /**
          * SubjectsOut
@@ -1628,6 +1703,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    read_nearby_api_v1_food_nearby_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NearbyOut"];
+                };
+            };
+            /** @description Нужен статус «Студент» и заполненный вуз */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

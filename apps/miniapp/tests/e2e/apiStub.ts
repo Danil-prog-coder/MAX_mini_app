@@ -367,6 +367,38 @@ interface StubState {
   rewards: Set<string>;
 }
 
+/** Точки питания — как их отдаёт настоящий API (ТЗ 7.5). */
+export const SPOTS = [
+  {
+    id: 1,
+    name: 'Столовая корпуса',
+    kind: 'catering',
+    place_type: 'столовая',
+    address: 'Ленинские горы, 1, стр. 1',
+    map_deeplink: 'https://yandex.ru/maps/?pt=37.530000,55.700000&z=18&text=Столовая+корпуса',
+    distance_score: 5,
+    walk_minutes: 3,
+    rating: 4.4,
+    menu: 'комплексные обеды, супы, выпечка',
+    has_bakery: null,
+    assortment: null,
+  },
+  {
+    id: 2,
+    name: 'Продукты у корпуса',
+    kind: 'shop',
+    place_type: 'магазин',
+    address: 'Ленинские горы, 1, стр. 2',
+    map_deeplink: 'https://yandex.ru/maps/?pt=37.530000,55.700000&z=18&text=Продукты',
+    distance_score: 4,
+    walk_minutes: 6,
+    rating: null,
+    menu: null,
+    has_bakery: true,
+    assortment: 'средний',
+  },
+];
+
 /** Награды с ценами уточнения У23. */
 export const REWARDS = [
   { code: 'question_priority', title: 'Приоритет показа вопроса', price: 300 },
@@ -566,6 +598,19 @@ function response(method: string, path: string, body: unknown, state: StubState)
       ];
     });
     return { total: items.length, items };
+  }
+
+  if (path.startsWith('/api/v1/food')) {
+    // Гейт ТЗ 7.2 закрывает раздел целиком, а не только пункт меню.
+    if (!accessOf(state.profile).food) return FORBIDDEN;
+    if (method === 'GET' && path === '/api/v1/food/nearby') {
+      return {
+        total: SPOTS.length,
+        university_address: 'Москва, Ленинские горы, 1',
+        items: SPOTS,
+        demo: true,
+      };
+    }
   }
 
   if (method === 'GET' && path === '/api/v1/gamification/me') {
