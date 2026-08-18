@@ -54,3 +54,37 @@ class PointsTransaction(Model):
 
     def __str__(self) -> str:
         return f"{self.reason}:{self.subject} {self.amount:+d}"
+
+
+class MonthlyTitle(Model):
+    """Статус месяца (ТЗ 6.4, уточнения У19, У24).
+
+    Без вуза намеренно: рейтинг общеплатформенный, и статус месяца получает
+    один человек на всю площадку (У19). Поле `university` из тех. ТЗ 3.7 здесь
+    было бы прямой ошибкой — инвариант 9 в CLAUDE.md.
+
+    Месяц хранится первым числом: так строка уникальна на месяц и её нельзя
+    выдать дважды при повторном запуске фоновой задачи.
+    """
+
+    id = fields.BigIntField(primary_key=True)
+    user: fields.ForeignKeyRelation[Model] = fields.ForeignKeyField(
+        "models.User",
+        related_name="monthly_titles",
+        on_delete=fields.CASCADE,
+    )
+    user_id: int
+    month = fields.DateField()
+    title_name = fields.CharField(max_length=64)
+    # Сколько баллов человек набрал за тот месяц. Хранится, потому что позже
+    # его баланс изменится, а история титула должна остаться проверяемой.
+    points = fields.IntField(default=0)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "monthly_titles"
+        ordering: ClassVar[list[str]] = ["-month"]
+        unique_together = (("month",),)
+
+    def __str__(self) -> str:
+        return f"{self.title_name} за {self.month}"
