@@ -91,8 +91,138 @@ export const VACANCIES = {
   source: 'fixture',
 };
 
+/** Предметы ЕГЭ и границы проверки — как их отдаёт настоящий API. */
+export const SUBJECTS = {
+  subjects: [
+    'Русский язык',
+    'Математика',
+    'Информатика',
+    'Физика',
+    'Обществознание',
+    'Биология',
+    'История',
+    'Химия',
+  ],
+  min_subjects: 3,
+  min_score: 0,
+  max_score: 100,
+};
+
+const REQUIRED_SUBJECTS: Record<string, string[]> = {
+  applied_mathematics: ['Русский язык', 'Математика', 'Информатика'],
+  information_systems: ['Русский язык', 'Математика', 'Информатика'],
+  software_engineering: ['Русский язык', 'Математика', 'Информатика'],
+  jurisprudence: ['Русский язык', 'Обществознание', 'История'],
+};
+
+export const CATALOGUE_DIRECTIONS = Object.entries(REQUIRED_SUBJECTS).map(([code, subjects]) => ({
+  code,
+  name:
+    code === 'jurisprudence'
+      ? 'Юриспруденция'
+      : (Object.values(DIRECTIONS).find((direction) => direction.code === code)?.name ?? code),
+  summary: 'Направление из справочника проекта.',
+  required_subjects: subjects,
+}));
+
+/**
+ * Три программы с разными проходными: на баллах из теста они дают по одной
+ * метке каждого вида, и экран шансов проверяется целиком.
+ */
+export const PROGRAMS = [
+  { program_id: 11, university: 1, short_name: 'МГУ', direction: 'applied_mathematics', pass: 290 },
+  {
+    program_id: 12,
+    university: 2,
+    short_name: 'УрФУ',
+    direction: 'information_systems',
+    pass: 270,
+  },
+  {
+    program_id: 13,
+    university: 3,
+    short_name: 'ЮФУ',
+    direction: 'software_engineering',
+    pass: 240,
+  },
+  {
+    program_id: 14,
+    university: 1,
+    short_name: 'МГУ',
+    direction: 'jurisprudence',
+    pass: 250,
+  },
+];
+
+/** Баллы, при которых видны все три метки шанса. */
+export const TECH_SCORES = { 'Русский язык': 88, Математика: 92, Информатика: 95 };
+
+const DEMO_FIELDS = ['passing_score', 'budget_places', 'tuition_price', 'admission_deadline'];
+
+function university(id: number) {
+  const program = PROGRAMS.find((item) => item.university === id);
+  if (program === undefined) return null;
+  return {
+    id,
+    name: `${program.short_name} — полное название`,
+    short_name: program.short_name,
+    city: 'Москва',
+    address: 'Ленинские горы, 1',
+    budget_places: 120,
+    tuition_price: 498000,
+    has_dormitory: true,
+    admission_deadline: '2026-07-25',
+  };
+}
+
+/** Формула уточнения У12 — повторена здесь, чтобы выдача заглушки была честной. */
+function chanceOf(gap: number): string {
+  if (gap >= 8) return 'high';
+  if (gap >= -10) return 'borderline';
+  return 'unlikely';
+}
+
+const CHANCE_ORDER: Record<string, number> = { high: 0, borderline: 1, unlikely: 2 };
+
+/** Порядок метки. Неизвестной метки быть не может, но `noUncheckedIndexedAccess` об этом не знает. */
+function chanceOrder(chance: string): number {
+  return CHANCE_ORDER[chance] ?? CHANCE_ORDER.unlikely ?? 2;
+}
+
+function matchesFor(scores: Record<string, number>, universityId?: number) {
+  return PROGRAMS.filter(
+    (program) => universityId === undefined || program.university === universityId,
+  )
+    .flatMap((program) => {
+      const required = REQUIRED_SUBJECTS[program.direction] ?? [];
+      if (!required.every((subject) => subject in scores)) return [];
+      const total = required.reduce((sum, subject) => sum + (scores[subject] ?? 0), 0);
+      const direction = CATALOGUE_DIRECTIONS.find((item) => item.code === program.direction);
+      return [
+        {
+          program_id: program.program_id,
+          university: university(program.university),
+          direction,
+          chance: chanceOf(total - program.pass),
+          applicant_score: total,
+          passing_score: program.pass,
+          budget_places: 120,
+          demo_fields: DEMO_FIELDS,
+          gap: total - program.pass,
+        },
+      ];
+    })
+    .sort((a, b) => chanceOrder(a.chance) - chanceOrder(b.chance) || b.gap - a.gap);
+}
+
+/** Состояние заглушки: баллы и трекер переживают запросы, как в настоящем API. */
+interface StubState {
+  scores: Record<string, number>;
+  tracked: Set<number>;
+}
+
 /** Что отдавать на какой путь. Ключ — метод и путь без строки запроса. */
-function response(method: string, path: string): unknown {
+function response(method: string, path: string, body: unknown, state: StubState): unknown {
   if (method === 'GET' && path === '/api/v1/users/me') return PROFILE;
   if (method === 'GET' && path === '/api/v1/career-test/questions') return QUESTIONS;
   if (method === 'GET' && path === '/api/v1/career-test/results/latest') return TEST_RESULT;
@@ -105,10 +235,66 @@ function response(method: string, path: string): unknown {
       points_balance: PROFILE.points_balance + 50,
     };
   }
+
+  if (method === 'GET' && path === '/api/v1/vuz-selection/subjects') return SUBJECTS;
+  if (method === 'GET' && path === '/api/v1/vuz-selection/directions') return CATALOGUE_DIRECTIONS;
+  if (method === 'GET' && path === '/api/v1/vuz-selection/scores') {
+    return scoresBody(state.scores);
+  }
+  if (method === 'POST' && path === '/api/v1/vuz-selection/scores') {
+    state.scores = (body as { scores?: Record<string, number> }).scores ?? {};
+    return scoresBody(state.scores);
+  }
+  if (method === 'GET' && path === '/api/v1/vuz-selection/matches') {
+    const items = matchesFor(state.scores);
+    return {
+      total: Object.values(state.scores).reduce((sum, score) => sum + score, 0),
+      items,
+    };
+  }
+
+  const card = /^\/api\/v1\/vuz-selection\/universities\/(\d+)$/.exec(path);
+  if (method === 'GET' && card) {
+    const id = Number(card[1]);
+    const found = university(id);
+    if (found === null) return undefined;
+    return {
+      university: found,
+      programs: matchesFor(state.scores, id),
+      tracked: state.tracked.has(id),
+      demo_fields: DEMO_FIELDS,
+    };
+  }
+
+  const track = /^\/api\/v1\/vuz-selection\/track\/(\d+)$/.exec(path);
+  if (method === 'POST' && track) {
+    const id = Number(track[1]);
+    const found = university(id);
+    if (found === null) return undefined;
+    state.tracked.add(id);
+    const code = (body as { direction?: string | null }).direction ?? null;
+    return {
+      university: found,
+      direction: CATALOGUE_DIRECTIONS.find((item) => item.code === code) ?? null,
+    };
+  }
+
   return undefined;
 }
 
+function scoresBody(scores: Record<string, number>) {
+  return {
+    scores,
+    total: Object.values(scores).reduce((sum, score) => sum + score, 0),
+    min_subjects: SUBJECTS.min_subjects,
+  };
+}
+
 export async function installApiStub(page: Page): Promise<void> {
+  // Состояние своё на каждый тест: иначе отслеженный вуз из одного теста
+  // влиял бы на надпись кнопки в другом.
+  const state: StubState = { scores: {}, tracked: new Set<number>() };
+
   await page.route('**/api/v1/**', async (route: Route) => {
     const request = route.request();
     // Запрос с телом и заголовком опознания браузер предваряет preflight —
@@ -119,7 +305,8 @@ export async function installApiStub(page: Page): Promise<void> {
     }
 
     const path = new URL(request.url()).pathname;
-    const body = response(request.method(), path);
+    const payload = request.method() === 'POST' ? safeJson(request.postData()) : undefined;
+    const body = response(request.method(), path, payload, state);
     if (body === undefined) {
       // Неизвестный путь — честный 404 с телом ошибки: так ведёт себя и
       // настоящий API, а экран покажет пустое состояние, а не сбой сети.
@@ -137,4 +324,13 @@ export async function installApiStub(page: Page): Promise<void> {
       body: JSON.stringify(body),
     });
   });
+}
+
+function safeJson(raw: string | null): unknown {
+  if (raw === null || raw === '') return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
 }
