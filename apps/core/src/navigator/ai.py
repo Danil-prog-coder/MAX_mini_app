@@ -8,6 +8,10 @@
 Объяснение результата теста — украшение поверх посчитанного результата, и если
 модель молчит, интерфейс показывает описание направления из справочника
 (тех. ТЗ 3.2). Поэтому функции возвращают `None`, а не бросают.
+
+У модерации это правило работает иначе: `None` там означает «вердикта нет», и
+решать, что делать без вердикта, — дело домена, а не этого модуля. Публиковать
+непроверенный текст нельзя, и молчание шлюза не должно выглядеть как «чисто».
 """
 
 from __future__ import annotations
@@ -90,3 +94,49 @@ async def career_explanation(
 
     text = response.json().get("text")
     return text if isinstance(text, str) and text.strip() else None
+
+
+#: Три исхода модерации (уточнение У18). Значения совпадают с ответом шлюза.
+MODERATION_CLEAN = "clean"
+MODERATION_REJECT = "reject"
+MODERATION_REVIEW = "review"
+
+
+@dataclass(frozen=True, slots=True)
+class Moderation:
+    """Вердикт модерации вопроса."""
+
+    verdict: str
+    reason: str
+
+
+async def moderate_question(
+    settings: Settings,
+    *,
+    text: str,
+    topic: str = "",
+) -> Moderation | None:
+    """Вердикт модерации или `None`, если шлюз молчит (тех. ТЗ 3.6, У18).
+
+    `None` — не «чисто»: вызывающий домен обязан решить сам, и единственное
+    правильное решение — отправить вопрос живому модератору, а не в ленту.
+    """
+    try:
+        response = await get_client(settings).post(
+            "/internal/ai/moderate-question",
+            json={"text": text, "topic": topic},
+        )
+        response.raise_for_status()
+    # Ловим широко по той же причине, что и выше: таймаут, отказ сети и 5xx
+    # шлюза означают одно — вердикта нет.
+    except Exception:
+        log.warning("ai_gateway_unavailable", endpoint="moderate-question", exc_info=True)
+        return None
+
+    body = response.json()
+    verdict = body.get("verdict")
+    if verdict not in (MODERATION_CLEAN, MODERATION_REJECT, MODERATION_REVIEW):
+        log.warning("ai_gateway_unexpected_verdict", verdict=verdict)
+        return None
+    reason = body.get("reason")
+    return Moderation(verdict=verdict, reason=reason if isinstance(reason, str) else "")

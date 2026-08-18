@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 
 from tortoise.exceptions import IntegrityError
@@ -39,6 +39,7 @@ __all__ = [
     "add_points",
     "confirm_student_verification",
     "get_by_id",
+    "get_many",
     "get_or_create",
     "get_university",
     "get_university_or_none",
@@ -225,6 +226,14 @@ async def add_points(user: User, amount: int) -> int:
     # Объект в памяти вызывающего кода не должен остаться со старым числом.
     user.points_balance = fresh.points_balance
     return fresh.points_balance
+
+
+async def get_many(user_ids: Iterable[int]) -> list[User]:
+    """Профили по набору идентификаторов. Нужен лентам, где авторов много."""
+    ids = list(set(user_ids))
+    if not ids:
+        return []
+    return await User.filter(id__in=ids)
 
 
 async def list_universities() -> list[University]:
