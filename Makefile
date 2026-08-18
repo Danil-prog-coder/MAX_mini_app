@@ -127,4 +127,8 @@ redis-shell: ## redis-cli
 
 .PHONY: api-types
 api-types: ## Перегенерировать типы фронтенда из схемы OpenAPI (тех. ТЗ 8.6)
+	# Схема снимается с приложения напрямую: ни поднятый сервер, ни база для
+	# генерации типов не нужны — иначе она ломается ровно тогда, когда фронт и
+	# бэкенд пишут разные люди.
+	cd $(CORE) && uv run python -m navigator.api.openapi > ../../$(MINIAPP)/openapi.json
 	pnpm --filter miniapp api:types

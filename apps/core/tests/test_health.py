@@ -6,6 +6,7 @@ Redis. Проверка с настоящими сервисами — в test_i
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 
 import httpx
@@ -13,7 +14,7 @@ import pytest
 from fastapi import FastAPI
 
 from navigator import __version__
-from navigator.api import health
+from navigator.api import health, openapi
 from navigator.api.app import create_app
 from navigator.config import Settings, get_settings
 from tests.conftest import default_settings
@@ -119,6 +120,26 @@ async def test_openapi_schema_renders(client: httpx.AsyncClient) -> None:
     schema = response.json()
     assert schema["info"]["version"] == __version__
     assert "/health" in schema["paths"]
+
+
+def test_openapi_module_prints_schema_without_server(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`python -m navigator.api.openapi` — вход `make api-types` (тех. ТЗ 8.6).
+
+    Схема снимается без поднятого сервера и без базы: генерация типов фронтенда
+    не должна требовать docker и свободный порт. Проверяется заодно и то, что
+    она не зависит от локальной конфигурации разработчика — иначе типы у двух
+    человек разъезжались бы от содержимого их `.env`.
+    """
+    monkeypatch.setenv("MOCK_AUTH", "true")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    openapi.main()
+
+    schema = json.loads(capsys.readouterr().out)
+    assert schema["info"]["version"] == __version__
+    assert "/api/v1/users/me" in schema["paths"]
 
 
 async def test_cors_allows_the_frontend_origin(client: httpx.AsyncClient) -> None:
