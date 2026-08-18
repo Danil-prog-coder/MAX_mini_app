@@ -9,6 +9,7 @@ from typing import Final
 
 from navigator import ai
 from navigator.config import Settings
+from navigator.domains.notifications import service as notifications
 from navigator.domains.support.models import SupportTicket
 from navigator.domains.support.replies import (
     CATEGORY_LABELS,
@@ -130,11 +131,12 @@ async def list_tickets(user: users.User, *, limit: int = 20) -> list[SupportTick
     return await SupportTicket.filter(user_id=user.id).limit(limit)
 
 
-async def reply_to_ticket(ticket_id: int, text: str) -> SupportTicket:
+async def reply_to_ticket(settings: Settings, ticket_id: int, text: str) -> SupportTicket:
     """Ответ администратора (ТЗ 8.6).
 
     Вызывается из админки, а не из мини-приложения (тех. ТЗ 3.9). Имя
-    отправителя обезличенное: конкретного администратора пользователь не видит.
+    отправителя обезличенное: конкретного администратора пользователь не видит,
+    и уведомление приходит от того же имени.
     """
     cleaned = text.strip()
     if not cleaned:
@@ -147,4 +149,16 @@ async def reply_to_ticket(ticket_id: int, text: str) -> SupportTicket:
     ticket.admin_reply = cleaned
     ticket.admin_replied_at = datetime.now(UTC)
     await ticket.save(update_fields=["admin_reply", "admin_replied_at"])
+
+    author = await users.get_by_id(ticket.user_id)
+    if author is not None:
+        await notifications.notify(
+            settings,
+            author,
+            kind=notifications.NotificationKind.support_reply,
+            title=SUPPORT_SENDER,
+            body=cleaned[:200],
+            dedup_key=f"support:{ticket.id}",
+            payload={"screen": "support", "ticket_id": ticket.id},
+        )
     return ticket

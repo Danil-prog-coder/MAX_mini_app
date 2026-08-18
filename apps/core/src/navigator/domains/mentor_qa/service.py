@@ -24,6 +24,7 @@ from navigator.domains.mentor_qa.models import (
     Question,
     QuestionTopic,
 )
+from navigator.domains.notifications import service as notifications
 from navigator.domains.users import service as users
 
 __all__ = [
@@ -231,6 +232,7 @@ class PublishedAnswer:
 
 
 async def add_answer(
+    settings: Settings,
     user: users.User,
     question_id: int,
     text: str,
@@ -239,6 +241,9 @@ async def add_answer(
 
     Отвечать вправе только привязанный к этому вузу и прошедший верификацию
     (уточнения У15, У17): вуз ответившего сверяется с вузом ленты.
+
+    Автор вопроса получает уведомление (ТЗ 5.7) — кроме случая, когда он сам же
+    и ответил: сообщать человеку о собственном ответе незачем.
     """
     cleaned = _clean(text, limit=MAX_ANSWER_LENGTH)
 
@@ -254,6 +259,20 @@ async def add_answer(
         raise AnsweringNotAllowed("отвечать можно только в ленте своего вуза")
 
     answer = await Answer.create(question_id=question.id, author_id=user.id, text=cleaned)
+
+    if question.author_id != user.id:
+        author = await users.get_by_id(question.author_id)
+        if author is not None:
+            await notifications.notify(
+                settings,
+                author,
+                kind=notifications.NotificationKind.question_answered,
+                title="На ваш вопрос ответили",
+                body=cleaned[:200],
+                dedup_key=f"answer:{answer.id}",
+                payload={"screen": "mentor-qa-feed", "university_id": question.university_id},
+            )
+
     award = await gamification.award(
         user,
         reason=gamification.PointsReason.mentor_answer,

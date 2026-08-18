@@ -175,7 +175,9 @@ class TestAdminReply:
         """ТЗ 8.6: ответ приходит от обезличенного имени «Поддержка»."""
         ticket_id = (await send(api_client)).json()["ticket"]["id"]
 
-        await service.reply_to_ticket(ticket_id, "Починили, попробуйте ещё раз.")
+        await service.reply_to_ticket(
+            integration_settings, ticket_id, "Починили, попробуйте ещё раз."
+        )
 
         item = (await api_client.get("/api/v1/support/tickets", headers=as_user("u-1"))).json()[
             "items"
@@ -201,10 +203,10 @@ class TestAdminReply:
         ticket_id = (await send(api_client)).json()["ticket"]["id"]
 
         with pytest.raises(service.InvalidTicket):
-            await service.reply_to_ticket(ticket_id, "   ")
+            await service.reply_to_ticket(integration_settings, ticket_id, "   ")
 
     async def test_unknown_ticket_is_reported(
         self, api_client: httpx.AsyncClient, integration_settings: Settings
     ) -> None:
         with pytest.raises(service.TicketNotFound):
-            await service.reply_to_ticket(999999, "ответ")
+            await service.reply_to_ticket(integration_settings, 999999, "ответ")

@@ -79,14 +79,16 @@ async def read_feed(
         404: {"description": "Вопроса с таким идентификатором нет"},
     },
 )
-async def add_answer(user: CurrentUser, question_id: int, payload: AnswerIn) -> PublishedAnswerOut:
+async def add_answer(
+    user: CurrentUser, settings: SettingsDep, question_id: int, payload: AnswerIn
+) -> PublishedAnswerOut:
     """Публикует ответ и начисляет +25 (ТЗ 5.6, уточнение У21).
 
     Отвечать вправе только привязанный к этому вузу и прошедший верификацию
     (уточнения У15, У17).
     """
     try:
-        published = await service.add_answer(user, question_id, payload.text)
+        published = await service.add_answer(settings, user, question_id, payload.text)
     except service.QuestionNotFound as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except service.AnsweringNotAllowed as error:
