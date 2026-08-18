@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from enum import StrEnum
 
 from fastapi import APIRouter, FastAPI, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,8 +30,8 @@ log = get_logger(__name__)
 health_router = APIRouter(tags=["service"])
 
 # Внутренние эндпоинты тех. ТЗ 5. Появляются вместе с блоками, которым нужны:
-# `/internal/ai/career-explanation` — с блоком 1. Остальные два
-# (`moderate-question`, `classify-ticket`) добавляются с блоками 5 и 8.
+# `/internal/ai/career-explanation` — с блоком 1, `moderate-question` — с
+# блоком 5. Последний (`classify-ticket`) добавляется с блоком 8.
 internal_router = APIRouter(prefix="/internal/ai", tags=["ai"])
 
 
@@ -56,6 +57,44 @@ class CareerExplanationRequest(BaseModel):
     directions: list[DirectionIn] = Field(min_length=1, max_length=5)
     #: Имя пользователя, если оно известно (уточнение У6). Не обязательно.
     display_name: str | None = Field(default=None, max_length=128)
+
+
+#: Потолок длины вопроса. Длиннее — уже не вопрос, а сочинение, и в промпт
+#: чужой текст такого объёма пускать не стоит.
+MODERATION_MAX_TEXT = 2000
+#: Вердикт и причина укладываются в две короткие строки.
+MODERATION_MAX_TOKENS = 64
+#: Ноль: модерация должна быть воспроизводимой, а не творческой.
+MODERATION_TEMPERATURE = 0.0
+
+
+#: Три исхода модерации (уточнение У18). Имена совпадают с тем, что просит
+#: шаблон промпта: `clean` — публикуем, `reject` — отклоняем, `review` — в
+#: очередь ручной модерации.
+class ModerationVerdict(StrEnum):
+    clean = "clean"
+    reject = "reject"
+    review = "review"
+
+
+class ModerationRequest(BaseModel):
+    """Запрос на проверку вопроса перед публикацией (тех. ТЗ 3.6, 5)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=MODERATION_MAX_TEXT)
+    #: Тема вопроса на русском: она помогает модели понять контекст.
+    topic: str = Field(default="", max_length=64)
+
+
+class ModerationResponse(BaseModel):
+    """Вердикт модерации вместе с расходом токенов."""
+
+    verdict: ModerationVerdict
+    #: Короткая причина от модели. Показывается ручному модератору в админке.
+    reason: str
+    provider: str
+    total_tokens: int
 
 
 class CompletionResponse(BaseModel):
@@ -173,6 +212,73 @@ async def career_explanation(
         provider=completion.provider,
         prompt_tokens=completion.prompt_tokens,
         completion_tokens=completion.completion_tokens,
+        total_tokens=completion.total_tokens,
+    )
+
+
+def _parse_verdict(text: str) -> tuple[ModerationVerdict, str]:
+    """Разбирает ответ модели: вердикт на первой строке, причина на второй.
+
+    Непонятный ответ — не повод публиковать: он превращается в `review`, то
+    есть уходит к живому модератору. Ошибка разбора не должна открывать ленту
+    для того, что модель, возможно, забраковала.
+    """
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    head = lines[0].lower().strip(".:!,") if lines else ""
+    reason = lines[1] if len(lines) > 1 else ""
+
+    for verdict in ModerationVerdict:
+        if head.startswith(verdict.value):
+            return verdict, reason
+    return ModerationVerdict.review, reason or "не удалось разобрать ответ модели"
+
+
+@internal_router.post(
+    "/moderate-question",
+    response_model=ModerationResponse,
+    summary="Модерация вопроса перед публикацией",
+)
+async def moderate_question(
+    payload: ModerationRequest,
+    provider: ProviderDep,
+    settings: SettingsDep,
+) -> ModerationResponse:
+    """Проверяет вопрос перед публикацией (тех. ТЗ 3.6, уточнение У18).
+
+    Три исхода: чисто — публикуется сразу, явное нарушение — отклоняется,
+    спорное — уходит в очередь ручной модерации.
+
+    Недоступность модели — 503. Что делать дальше, решает вызывающая сторона:
+    у неё есть выбор между «подождать» и «отправить к живому модератору», и
+    выбирать за неё шлюз не вправе.
+    """
+    prompt = render("moderate_question.jinja", text=payload.text, topic=payload.topic)
+    try:
+        completion = await provider.complete(
+            prompt,
+            max_tokens=MODERATION_MAX_TOKENS,
+            temperature=MODERATION_TEMPERATURE,
+        )
+    except LLMUnavailableError as error:
+        log.warning("llm_unavailable", endpoint="moderate-question", provider=provider.name)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="модель недоступна",
+        ) from error
+
+    verdict, reason = _parse_verdict(completion.text)
+    log.info(
+        "llm_completed",
+        endpoint="moderate-question",
+        provider=completion.provider,
+        verdict=verdict.value,
+        total_tokens=completion.total_tokens,
+        environment=settings.environment.value,
+    )
+    return ModerationResponse(
+        verdict=verdict,
+        reason=reason,
+        provider=completion.provider,
         total_tokens=completion.total_tokens,
     )
 
