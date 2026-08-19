@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from navigator_ai import __version__
 from navigator_ai.cache import check_redis, close_redis
 from navigator_ai.config import Settings, get_settings
+from navigator_ai.costs import record_cost
 from navigator_ai.deps import ProviderDep, SettingsDep
 from navigator_ai.logging import configure_logging, get_logger
 from navigator_ai.prompts import render
@@ -226,6 +227,12 @@ async def career_explanation(
             detail="модель недоступна",
         ) from error
 
+    await record_cost(
+        "career-explanation",
+        completion.provider,
+        completion.prompt_tokens,
+        completion.completion_tokens,
+    )
     log.info(
         "llm_completed",
         endpoint="career-explanation",
@@ -293,6 +300,12 @@ async def moderate_question(
         ) from error
 
     verdict, reason = _parse_verdict(completion.text)
+    await record_cost(
+        "moderate-question",
+        completion.provider,
+        completion.prompt_tokens,
+        completion.completion_tokens,
+    )
     log.info(
         "llm_completed",
         endpoint="moderate-question",
@@ -351,6 +364,13 @@ async def classify_ticket(
     category = head if head in payload.categories else None
     if category is None:
         log.warning("llm_unexpected_category", endpoint="classify-ticket", answer=head[:64])
+
+    await record_cost(
+        "classify-ticket",
+        completion.provider,
+        completion.prompt_tokens,
+        completion.completion_tokens,
+    )
 
     log.info(
         "llm_completed",

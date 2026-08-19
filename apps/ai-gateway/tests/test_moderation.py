@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 import pytest
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
@@ -12,7 +14,7 @@ pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
-async def client() -> AsyncClient:
+async def client() -> AsyncIterator[AsyncClient]:
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
