@@ -301,3 +301,26 @@ class TestMonthlyTitle:
             "points": 300,
             "mine": True,
         }
+
+
+class TestPlatformWideRating:
+    """Инвариант 9 в CLAUDE.md: рейтинг общеплатформенный (уточнение У19).
+
+    Проверяется не только ответом API, но и самими моделями: `university_id`
+    рядом с лидербордом или титулом месяца — ошибка, а не расширение, и
+    заметить её по одному лишь ответу можно не сразу.
+    """
+
+    def test_models_have_no_university(self) -> None:
+        for model in (service.PointsTransaction, service.MonthlyTitle):
+            fields = set(model._meta.fields)
+            assert "university" not in fields, model.__name__
+            assert "university_id" not in fields, model.__name__
+
+    def test_leaderboard_takes_no_university_argument(self) -> None:
+        import inspect
+
+        signature = inspect.signature(service.leaderboard)
+
+        assert "vuz_id" not in signature.parameters
+        assert "university_id" not in signature.parameters
