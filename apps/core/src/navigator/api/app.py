@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from navigator import __version__
+from navigator.ai import close_client as close_ai_client
 from navigator.api.health import router as health_router
 from navigator.api.router import api_router
 from navigator.cache import close_redis
@@ -66,6 +67,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             yield
         finally:
             await close_redis()
+            await close_ai_client()
             log.info("core_api_stopped")
 
 

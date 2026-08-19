@@ -5,10 +5,11 @@ from __future__ import annotations
 import pytest
 
 from navigator_ai.providers import (
+    CachedProvider,
     Completion,
     LLMProvider,
     MockProvider,
-    ProviderNotImplementedError,
+    ResilientProvider,
     build_provider,
 )
 from tests.conftest import default_settings
@@ -78,16 +79,48 @@ def test_build_provider_returns_the_configured_implementation() -> None:
     assert provider.name == "mock"
 
 
-def test_build_provider_fails_loudly_for_a_provider_without_implementation() -> None:
+def test_provider_is_wrapped_in_cache_and_resilience() -> None:
+    """Тех. ТЗ 5, пп. 2–4: кэш снаружи, повтор и фолбэк внутри."""
+    provider = build_provider(default_settings(llm_provider="mock"))
+
+    assert isinstance(provider, CachedProvider)
+    assert isinstance(provider._inner, ResilientProvider)
+
+
+def test_real_providers_are_implemented() -> None:
     settings = default_settings(
         llm_provider="yandexgpt",
         yandex_gpt_api_key="key",
         yandex_gpt_folder_id="folder",
     )
 
-    with pytest.raises(ProviderNotImplementedError) as caught:
-        build_provider(settings)
+    assert build_provider(settings).name == "yandexgpt"
 
-    message = str(caught.value)
-    assert "yandexgpt" in message
-    assert "mock" in message
+
+def test_fallback_appears_only_when_configured() -> None:
+    """Тех. ТЗ 5, п. 3: без ключа резерва нет, и делать вид обратного нельзя."""
+    without = default_settings(
+        llm_provider="yandexgpt", yandex_gpt_api_key="key", yandex_gpt_folder_id="folder"
+    )
+    with_key = default_settings(
+        llm_provider="yandexgpt",
+        yandex_gpt_api_key="key",
+        yandex_gpt_folder_id="folder",
+        gigachat_api_key="giga",
+    )
+
+    assert _resilient(build_provider(without))._fallback is None
+    assert _resilient(build_provider(with_key))._fallback is not None
+
+
+def test_mock_never_serves_as_a_fallback() -> None:
+    """Подменять недоступную модель выдумкой хуже, чем отказать."""
+    settings = default_settings(llm_provider="mock", gigachat_api_key="giga")
+
+    assert _resilient(build_provider(settings))._fallback is None
+
+
+def _resilient(provider: object) -> ResilientProvider:
+    inner = provider._inner  # type: ignore[attr-defined]
+    assert isinstance(inner, ResilientProvider)
+    return inner

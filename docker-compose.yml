@@ -18,13 +18,14 @@ x-core-image: &core-image
     dockerfile: apps/core/Dockerfile
 
 # Сервисы приложения ждут не только живых Postgres и Redis, но и завершения
-# миграций: подниматься на несовпадающей схеме бессмысленно.
+# миграций и заливки справочников: подниматься на несовпадающей схеме
+# бессмысленно, а пустой справочник вузов делает бесполезными блоки 2, 3 и 7.
 x-core-depends-on: &core-depends-on
   postgres:
     condition: service_healthy
   redis:
     condition: service_healthy
-  migrate:
+  seed:
     condition: service_completed_successfully
 
 x-core-env: &core-env
@@ -36,6 +37,18 @@ x-core-env: &core-env
   CELERY_BROKER_URL: redis://redis:6379/1
   CELERY_RESULT_BACKEND: redis://redis:6379/2
   AI_GATEWAY_URL: http://ai-gateway:8100
+  # Реализации внешних источников (уточнения У3, У8). Значения по умолчанию
+  # совпадают с .env.example: настоящие там, где источник доступен без ключа.
+  SOURCE_VACANCIES: ${SOURCE_VACANCIES:-hh}
+  SOURCE_ADMISSION: ${SOURCE_ADMISSION:-fixture}
+  SOURCE_COMPETITION_LISTS: ${SOURCE_COMPETITION_LISTS:-fixture}
+  SOURCE_TIMETABLES: ${SOURCE_TIMETABLES:-fixture}
+  SOURCE_FOOD: ${SOURCE_FOOD:-fixture}
+  # Транспорт уведомлений (уточнение У25): очередь в базе по умолчанию.
+  NOTIFICATION_TRANSPORT: ${NOTIFICATION_TRANSPORT:-in_app}
+  # Доступ в админку — отдельная роль (уточнение У26, тех. ТЗ 9.4).
+  ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
   # Только для локального запуска: подпись initData не проверяется, пользователь
   # опознаётся заголовком X-Max-User-Id (тех. ТЗ 9.3). В production сервис с этим
   # флагом не поднимется — проверка в navigator.config.
@@ -96,6 +109,20 @@ services:
     restart: "no"
     networks: [navigator]
 
+  seed:
+    <<: *core-image
+    # Заливка справочных данных (вузы, уточнение У4) после миграций. Команда
+    # идемпотентна, поэтому выполняется при каждом подъёме окружения: так
+    # справочник в базе всегда совпадает с файлом в репозитории, и про
+    # заливку не нужно помнить руками.
+    command: ["python", "-m", "navigator.seed"]
+    environment: *core-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+    networks: [navigator]
+
   core-api:
     <<: *core-image
     environment: *core-env
@@ -141,6 +168,27 @@ services:
       ]
     environment: *core-env
     depends_on: *core-depends-on
+    networks: [navigator]
+
+  admin:
+    <<: *core-image
+    # Отдельное приложение и отдельный процесс (уточнение У26, тех. ТЗ 9.4).
+    # Порт только на localhost: в очереди лежат тексты обращений пользователей,
+    # и наружу её публиковать незачем.
+    command:
+      [
+        "uvicorn",
+        "navigator.admin:create_app",
+        "--factory",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+      ]
+    environment: *core-env
+    depends_on: *core-depends-on
+    ports:
+      - "127.0.0.1:${ADMIN_PORT:-8001}:8001"
     networks: [navigator]
 
   ai-gateway:

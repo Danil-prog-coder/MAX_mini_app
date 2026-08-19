@@ -16,6 +16,7 @@ import asyncio
 from collections.abc import Callable, Coroutine
 from typing import Any
 
+from navigator.ai import close_client as close_ai_client
 from navigator.cache import close_redis
 from navigator.config import get_settings
 from navigator.db import close_db, init_db
@@ -37,5 +38,6 @@ def run_async[T](factory: Callable[[], Coroutine[Any, Any, T]]) -> T:
         finally:
             await close_db()
             await close_redis()
+            await close_ai_client()
 
     return asyncio.run(runner())
