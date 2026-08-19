@@ -42,6 +42,15 @@ class FoodSource(Protocol):
     @property
     def name(self) -> str: ...
 
+    @property
+    def demo(self) -> bool:
+        """Данные демонстрационные и должны быть помечены (уточнение У4).
+
+        Свойство источника, а не сравнение имени режима в вызывающем коде:
+        только источник знает, настоящие у него данные или выдуманные.
+        """
+        ...
+
     def nearby(
         self,
         *,
@@ -89,6 +98,10 @@ class FixtureFoodSource:
     @property
     def name(self) -> str:
         return "fixture"
+
+    @property
+    def demo(self) -> bool:
+        return True
 
     def nearby(
         self,

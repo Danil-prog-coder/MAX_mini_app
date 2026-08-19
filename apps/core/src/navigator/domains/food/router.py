@@ -50,5 +50,5 @@ async def read_nearby(user: StudentUser, settings: SettingsDep) -> NearbyOut:
         total=len(spots),
         university_address=f"{university.city}, {university.address}",
         items=[SpotOut.of(spot) for spot in spots],
-        demo=settings.source_food == "fixture",
+        demo=service.is_demo(settings),
     )

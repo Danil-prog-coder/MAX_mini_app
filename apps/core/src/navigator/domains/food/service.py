@@ -25,6 +25,7 @@ __all__ = [
     "PlaceKind",
     "RefreshReport",
     "User",
+    "is_demo",
     "nearby_for",
     "refresh_all",
     "refresh_for",
@@ -51,6 +52,15 @@ def require_access(user: users.User) -> None:
     """
     if not users.access_of(user).food:
         raise FoodClosed("нужен статус «Студент» и заполненный вуз")
+
+
+def is_demo(settings: Settings) -> bool:
+    """Помечены ли точки как демонстрационные (уточнение У4).
+
+    Спрашиваем источник, а не сравниваем имя режима: доменный код не должен
+    знать, как называются реализации (уточнения У3, У8).
+    """
+    return food.create(settings.source_food).demo
 
 
 @dataclass(frozen=True, slots=True)

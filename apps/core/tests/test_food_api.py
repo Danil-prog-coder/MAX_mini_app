@@ -124,6 +124,15 @@ class TestNearby:
 
         assert (await nearby(api_client))["demo"] is True
 
+    def test_demo_flag_comes_from_the_source_itself(self, integration_settings: Settings) -> None:
+        """Не сравнение имени режима: доменный код не знает имён реализаций.
+
+        Уточнения У3 и У8 запрещают `if DEMO:` в доменной логике, а сравнение
+        `settings.source_food == "fixture"` — это оно и есть, только записанное
+        иначе.
+        """
+        assert service.is_demo(integration_settings) is True
+
     async def test_geolocation_is_not_requested(
         self, api_client: httpx.AsyncClient, integration_settings: Settings
     ) -> None:
