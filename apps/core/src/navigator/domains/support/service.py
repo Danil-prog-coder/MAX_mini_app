@@ -33,6 +33,7 @@ __all__ = [
     "TicketCategory",
     "TicketNotFound",
     "create_ticket",
+    "list_pending",
     "list_tickets",
     "pick_reply",
     "reply_to_ticket",
@@ -129,6 +130,15 @@ async def _suggest_category(settings: Settings, text: str) -> TicketCategory | N
 async def list_tickets(user: users.User, *, limit: int = 20) -> list[SupportTicket]:
     """Обращения пользователя вместе с ответами (ТЗ 8.6)."""
     return await SupportTicket.filter(user_id=user.id).limit(limit)
+
+
+async def list_pending(*, limit: int = 100) -> list[SupportTicket]:
+    """Обращения без ответа администратора — очередь админки (уточнение У26).
+
+    Порядок обратный обычному: старые сверху. В очереди поддержки важно, кто
+    ждёт дольше, а не кто написал последним.
+    """
+    return await SupportTicket.filter(admin_reply=None).order_by("created_at").limit(limit)
 
 
 async def reply_to_ticket(settings: Settings, ticket_id: int, text: str) -> SupportTicket:

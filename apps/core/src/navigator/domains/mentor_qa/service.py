@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Final
 
 from tortoise.exceptions import IntegrityError
@@ -40,6 +41,7 @@ __all__ = [
     "FeedQuestion",
     "InvalidText",
     "LikeResult",
+    "ModerationDecision",
     "ModerationStatus",
     "PublishedAnswer",
     "Question",
@@ -48,6 +50,8 @@ __all__ = [
     "add_answer",
     "ask",
     "feed_for",
+    "list_for_review",
+    "resolve_moderation",
     "toggle_like",
 ]
 
@@ -319,3 +323,56 @@ async def toggle_like(user: users.User, answer_id: int) -> LikeResult:
         await answer.save(update_fields=["likes_count"])
 
     return LikeResult(liked=not removed, likes_count=count)
+
+
+# ─── ручная модерация (уточнения У18, У26) ───────────────────────────────────
+
+
+class ModerationDecision(StrEnum):
+    """Что решил живой модератор."""
+
+    publish = "publish"
+    reject = "reject"
+
+
+async def list_for_review(*, limit: int = 100) -> list[Question]:
+    """Спорные вопросы — очередь ручной модерации в админке (У18, У26).
+
+    Старые сверху: в очереди модерации важно, чей вопрос висит дольше. Пока он
+    здесь, автор видит его у себя с пометкой «на проверке», а в ленте вуза его
+    нет.
+    """
+    return (
+        await Question.filter(moderation_status=ModerationStatus.manual_review)
+        .order_by("created_at")
+        .limit(limit)
+    )
+
+
+async def resolve_moderation(
+    question_id: int,
+    decision: ModerationDecision,
+    *,
+    reason: str = "",
+) -> Question:
+    """Решение живого модератора по спорному вопросу (уточнение У18).
+
+    Решается только спорный вопрос: уже опубликованный или отклонённый второй
+    раз не пересматривается — иначе один вопрос мог бы появиться в ленте
+    дважды, а автор получил бы противоречащие друг другу сообщения.
+    """
+    question = await Question.get_or_none(
+        id=question_id, moderation_status=ModerationStatus.manual_review
+    )
+    if question is None:
+        raise QuestionNotFound(f"спорного вопроса {question_id} нет")
+
+    question.moderation_status = (
+        ModerationStatus.published
+        if decision is ModerationDecision.publish
+        else ModerationStatus.rejected
+    )
+    if reason.strip():
+        question.moderation_reason = reason.strip()
+    await question.save(update_fields=["moderation_status", "moderation_reason"])
+    return question
