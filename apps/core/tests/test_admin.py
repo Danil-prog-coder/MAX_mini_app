@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from collections.abc import AsyncIterator
 
@@ -248,3 +249,40 @@ class TestQuestionsQueue:
         assert response.status_code == 303
         saved = await mentor_qa.Question.get(id=question.id)
         assert saved.moderation_status is ModerationStatus.manual_review
+
+
+class TestLifespan:
+    async def test_queue_opens_when_lifespan_runs_in_another_task(
+        self, admin_settings: Settings
+    ) -> None:
+        """Воспроизводит то, как админку запускает uvicorn (решение Р13).
+
+        uvicorn выполняет lifespan отдельной задачей, а запросы обрабатывает в
+        другой. Состояние соединений Tortoise 1.x лежит в `contextvar`, который
+        между задачами не передаётся, — поэтому обычный `Tortoise.init` на
+        старте даёт зелёные тесты и 500 на живом сервере.
+
+        Именно так админка и упала на приёмке: обычные тесты этого не видят,
+        у них lifespan и запрос в одной задаче. **Не удалять как избыточный.**
+        """
+        app = create_admin_app(admin_settings)
+        started = asyncio.Event()
+        stop = asyncio.Event()
+
+        async def serve() -> None:
+            async with app.router.lifespan_context(app):
+                started.set()
+                await stop.wait()
+
+        lifespan_task = asyncio.create_task(serve())
+        try:
+            await asyncio.wait_for(started.wait(), timeout=10)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://admin"
+            ) as client:
+                response = await client.get("/tickets", headers=auth_header())
+        finally:
+            stop.set()
+            await asyncio.wait_for(lifespan_task, timeout=10)
+
+        assert response.status_code == 200, response.text

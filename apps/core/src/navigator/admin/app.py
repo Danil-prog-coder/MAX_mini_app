@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 
 from navigator.admin.auth import AdminUser, require_password
 from navigator.config import Settings, get_settings
-from navigator.db import close_db, init_db
+from navigator.db import register_db
 from navigator.domains.mentor_qa import service as mentor_qa
 from navigator.domains.support import service as support
 from navigator.logging import configure_logging, get_logger
@@ -50,13 +50,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
     @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        await init_db(active)
-        log.info("admin_started", environment=active.environment.value)
-        try:
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # `register_db`, а не `init_db`: uvicorn выполняет lifespan отдельной
+        # задачей, и соединения, выставленные в contextvar на старте, до
+        # обработчика запроса не доходят — первый же запрос падает с
+        # «No TortoiseContext is currently active» (решение Р13). Ровно это и
+        # случилось на приёмке: обычные тесты этого не видят, у них lifespan и
+        # запрос в одной задаче.
+        async with register_db(app, active):
+            log.info("admin_started", environment=active.environment.value)
             yield
-        finally:
-            await close_db()
             log.info("admin_stopped")
 
     app = FastAPI(
