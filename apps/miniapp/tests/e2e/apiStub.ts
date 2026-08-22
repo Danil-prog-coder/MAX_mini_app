@@ -202,8 +202,12 @@ export const TECH_SCORES = { 'Русский язык': 88, Математика
 
 const DEMO_FIELDS = ['passing_score', 'budget_places', 'tuition_price', 'admission_deadline'];
 
-function university(id: number) {
-  const program = PROGRAMS.find((item) => item.university === id);
+function university(id: number, programs: typeof PROGRAMS = PROGRAMS) {
+  // Ищем в переданном списке, а не в глобальном: тесты пагинации подставляют
+  // свои программы, и вуз из них глобальному списку неизвестен.
+  const program =
+    programs.find((item) => item.university === id) ??
+    PROGRAMS.find((item) => item.university === id);
   if (program === undefined) return null;
   return {
     id,
@@ -225,6 +229,9 @@ function chanceOf(gap: number): string {
   return 'unlikely';
 }
 
+/** Направление, которое «поднял» тест: заглушке хватает одного. */
+const CAREER_TEST_TOP_DIRECTION = 'applied_mathematics';
+
 const CHANCE_ORDER: Record<string, number> = { high: 0, borderline: 1, unlikely: 2 };
 
 /** Порядок метки. Неизвестной метки быть не может, но `noUncheckedIndexedAccess` об этом не знает. */
@@ -232,10 +239,13 @@ function chanceOrder(chance: string): number {
   return CHANCE_ORDER[chance] ?? CHANCE_ORDER.unlikely ?? 2;
 }
 
-function matchesFor(scores: Record<string, number>, universityId?: number) {
-  return PROGRAMS.filter(
-    (program) => universityId === undefined || program.university === universityId,
-  )
+function matchesFor(
+  scores: Record<string, number>,
+  universityId?: number,
+  programs: typeof PROGRAMS = PROGRAMS,
+) {
+  return programs
+    .filter((program) => universityId === undefined || program.university === universityId)
     .flatMap((program) => {
       const required = REQUIRED_SUBJECTS[program.direction] ?? [];
       if (!required.every((subject) => subject in scores)) return [];
@@ -244,7 +254,7 @@ function matchesFor(scores: Record<string, number>, universityId?: number) {
       return [
         {
           program_id: program.program_id,
-          university: university(program.university),
+          university: university(program.university, programs),
           direction,
           chance: chanceOf(total - program.pass),
           applicant_score: total,
@@ -368,6 +378,10 @@ interface StubState {
   notifications: typeof NOTIFICATIONS;
   digestHour: number;
   mutedKinds: Set<string>;
+  /** Пройден ли профориентационный тест (уточнение У28). */
+  careerTestApplied: boolean;
+  /** Программы, из которых собирается выдача подбора. */
+  programs: typeof PROGRAMS;
   tickets: {
     id: number;
     category: string;
@@ -428,7 +442,8 @@ export const SPOTS = [
     kind: 'catering',
     place_type: 'столовая',
     address: 'Ленинские горы, 1, стр. 1',
-    map_deeplink: 'https://yandex.ru/maps/?pt=37.530000,55.700000&z=18&text=Столовая+корпуса',
+    map_deeplink:
+      'https://yandex.ru/maps/?ll=37.531900,55.700000&z=17&pt=37.531900,55.700000,pm2rdm',
     distance_score: 5,
     walk_minutes: 3,
     rating: 4.4,
@@ -442,7 +457,8 @@ export const SPOTS = [
     kind: 'shop',
     place_type: 'магазин',
     address: 'Ленинские горы, 1, стр. 2',
-    map_deeplink: 'https://yandex.ru/maps/?pt=37.530000,55.700000&z=18&text=Продукты',
+    map_deeplink:
+      'https://yandex.ru/maps/?ll=37.526200,55.700000&z=17&pt=37.526200,55.700000,pm2rdm',
     distance_score: 4,
     walk_minutes: 6,
     rating: null,
@@ -618,10 +634,12 @@ function response(method: string, path: string, body: unknown, state: StubState)
     return scoresBody(state.scores);
   }
   if (method === 'GET' && path === '/api/v1/vuz-selection/matches') {
-    const items = matchesFor(state.scores);
+    const items = matchesFor(state.scores, undefined, state.programs);
     return {
       total: Object.values(state.scores).reduce((sum, score) => sum + score, 0),
       items,
+      career_test_applied: state.careerTestApplied,
+      career_test_directions: state.careerTestApplied ? [CAREER_TEST_TOP_DIRECTION] : [],
     };
   }
 
@@ -632,7 +650,7 @@ function response(method: string, path: string, body: unknown, state: StubState)
     if (found === null) return undefined;
     return {
       university: found,
-      programs: matchesFor(state.scores, id),
+      programs: matchesFor(state.scores, id, state.programs),
       tracked: state.tracked.has(id),
       demo_fields: DEMO_FIELDS,
     };
@@ -928,6 +946,14 @@ export interface StubOptions {
   readonly questions?: StubQuestion[];
   /** Что уже лежит в ленте уведомлений на старте теста. */
   readonly notifications?: typeof NOTIFICATIONS;
+  /**
+   * Пройден ли профориентационный тест (уточнение У28). Меняет плашку над
+   * выдачей подбора; на сам список заглушка порядок не наводит — порядок
+   * считает сервер, и проверять его на заглушке нечего.
+   */
+  readonly careerTestApplied?: boolean;
+  /** Программы подбора: тесты пагинации подставляют свой, длинный список. */
+  readonly programs?: typeof PROGRAMS;
 }
 
 export async function installApiStub(page: Page, options: StubOptions = {}): Promise<void> {
@@ -948,6 +974,8 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
     notifications: options.notifications ?? NOTIFICATIONS.map((item) => ({ ...item })),
     digestHour: 8,
     mutedKinds: new Set<string>(),
+    careerTestApplied: options.careerTestApplied ?? false,
+    programs: options.programs ?? PROGRAMS,
   };
 
   await page.route('**/api/v1/**', async (route: Route) => {

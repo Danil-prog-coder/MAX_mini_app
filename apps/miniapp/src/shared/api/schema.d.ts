@@ -672,10 +672,12 @@ export interface paths {
         };
         /**
          * Вузы с метками шанса
-         * @description Список направлений в вузах, отсортированный по шансу (ТЗ 2.5).
+         * @description Список направлений в вузах (ТЗ 2.5, уточнение У28).
          *
-         *     Расчёт детерминированный и живёт в сервисном слое, а не в LLM: это
-         *     арифметика на исторических проходных баллах (тех. ТЗ 3.3).
+         *     Расчёт шанса детерминированный и живёт в сервисном слое, а не в LLM: это
+         *     арифметика на исторических проходных баллах (тех. ТЗ 3.3). Профориентационный
+         *     тест на расчёт не влияет — только на порядок: его направления поднимаются
+         *     наверх, а ответ говорит, применено это или нет.
          */
         get: operations["read_matches_api_v1_vuz_selection_matches_get"];
         put?: never;
@@ -1139,6 +1141,13 @@ export interface components {
         };
         /** MatchesOut */
         MatchesOut: {
+            /**
+             * Career Test Applied
+             * @default false
+             */
+            career_test_applied: boolean;
+            /** Career Test Directions */
+            career_test_directions?: string[];
             /** Items */
             items: components["schemas"]["MatchOut"][];
             /** Total */

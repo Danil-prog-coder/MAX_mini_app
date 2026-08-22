@@ -16,6 +16,7 @@ from navigator.domains.vuz_selection.service import (
     MIN_SUBJECTS,
     Chance,
     MatchedProgram,
+    RankedMatches,
     TrackedVuz,
     UniversityCard,
 )
@@ -151,12 +152,20 @@ class MatchOut(BaseModel):
 class MatchesOut(BaseModel):
     total: int
     items: list[MatchOut]
+    #: Учтён ли профориентационный тест в порядке выдачи (уточнение У28).
+    #: Экран обязан сказать это прямо, поэтому флаг приходит с сервера, а не
+    #: выводится на фронте по косвенным признакам.
+    career_test_applied: bool = False
+    #: Коды направлений из теста — в том порядке, в каком они подняты наверх.
+    career_test_directions: list[str] = Field(default_factory=list)
 
     @classmethod
-    def of(cls, scores: dict[str, int], matches: list[MatchedProgram]) -> Self:
+    def of(cls, scores: dict[str, int], ranked: RankedMatches) -> Self:
         return cls(
             total=sum(scores.values()),
-            items=[MatchOut.of(match) for match in matches],
+            items=[MatchOut.of(match) for match in ranked.items],
+            career_test_applied=ranked.career_test_applied,
+            career_test_directions=list(ranked.career_test_directions),
         )
 
 

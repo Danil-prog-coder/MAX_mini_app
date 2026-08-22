@@ -147,3 +147,51 @@ test('пустая выдача предлагает ввести баллы, а
   await expect(page.getByText(/баллы ЕГЭ не введены/)).toBeVisible();
   await expect(page.getByRole('link', { name: 'Ввести баллы' })).toBeVisible();
 });
+
+/**
+ * Порядок выдачи и её объём (уточнение У28).
+ *
+ * Плашка обязана быть в обоих состояниях: человек, который тест не проходил,
+ * иначе не узнает, что выдачу можно улучшить.
+ */
+test('без пройденного теста выдача прямо говорит, что его не учитывает', async ({ page }) => {
+  await installApiStub(page, { careerTestApplied: false });
+  await page.goto('/vuz-selection');
+  await fillScores(page);
+  await page.getByRole('button', { name: 'Подобрать вузы' }).click();
+
+  await expect(page.getByText('НЕ УЧИТЫВАЕТ ПРОФТЕСТИРОВАНИЕ')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Пройти тест' })).toBeVisible();
+});
+
+test('с пройденным тестом выдача помечена как построенная на нём', async ({ page }) => {
+  await installApiStub(page, { careerTestApplied: true });
+  await page.goto('/vuz-selection');
+  await fillScores(page);
+  await page.getByRole('button', { name: 'Подобрать вузы' }).click();
+
+  await expect(page.getByText('НА ОСНОВЕ ПРОФТЕСТИРОВАНИЯ')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Пройти тест' })).toHaveCount(0);
+});
+
+test('список открывается первой десяткой и растёт по пять', async ({ page }) => {
+  // Тринадцать программ: хватает и на первую десятку, и на два нажатия.
+  const programs = Array.from({ length: 13 }, (_, index) => ({
+    program_id: 100 + index,
+    university: (index % 4) + 1,
+    short_name: 'МГУ',
+    direction: 'applied_mathematics',
+    pass: 200 + index,
+  }));
+  await installApiStub(page, { programs });
+  await page.goto('/vuz-selection');
+  await fillScores(page);
+  await page.getByRole('button', { name: 'Подобрать вузы' }).click();
+
+  const cards = page.getByRole('link').filter({ hasText: 'проходной прошлого года' });
+  await expect(cards).toHaveCount(10);
+
+  await page.getByRole('button', { name: /Показать ещё 3 из 3/ }).click();
+  await expect(cards).toHaveCount(13);
+  await expect(page.getByRole('button', { name: /Показать ещё/ })).toHaveCount(0);
+});

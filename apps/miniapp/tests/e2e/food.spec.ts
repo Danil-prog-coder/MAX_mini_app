@@ -49,13 +49,18 @@ test('каждая карточка ведёт на место в картах, 
 
   const links = page.getByRole('link', { name: 'Открыть на карте' });
   await expect(links).toHaveCount(SPOTS.length);
-  for (const spot of SPOTS) {
-    await expect(page.getByRole('link', { name: 'Открыть на карте' }).first()).toHaveAttribute(
-      'href',
-      /yandex\.ru\/maps\/\?pt=/,
-    );
-    expect(spot.map_deeplink).toContain('pt=');
+
+  const hrefs = await links.evaluateAll((nodes) =>
+    nodes.map((node) => (node as HTMLAnchorElement).href),
+  );
+  for (const href of hrefs) {
+    // Уточнение У27: карта открывается на точке, а не на поиске по названию.
+    expect(href).toContain('ll=');
+    expect(href).toContain('pt=');
+    expect(href).not.toContain('text=');
   }
+  // И у каждой точки она своя, иначе «открыть на карте» везде одинаково.
+  expect(new Set(hrefs).size).toBe(hrefs.length);
 });
 
 test('демонстрационные данные подписаны как демонстрационные', async ({ page }) => {
