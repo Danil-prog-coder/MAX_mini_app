@@ -46,14 +46,14 @@ jobs:
     steps:
       - id: check
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.MAX_MINI_APP_DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.MAX_MINI_APP_DEPLOY_SSH_KEY }}
         run: |
           missing=()
-          [ -n "$DEPLOY_HOST" ] || missing+=("DEPLOY_HOST")
-          [ -n "$DEPLOY_USER" ] || missing+=("DEPLOY_USER")
-          [ -n "$DEPLOY_SSH_KEY" ] || missing+=("DEPLOY_SSH_KEY")
+          [ -n "$DEPLOY_HOST" ] || missing+=("MAX_MINI_APP_DEPLOY_HOST")
+          [ -n "$DEPLOY_USER" ] || missing+=("MAX_MINI_APP_DEPLOY_USER")
+          [ -n "$DEPLOY_SSH_KEY" ] || missing+=("MAX_MINI_APP_DEPLOY_SSH_KEY")
 
           if [ ${#missing[@]} -eq 0 ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -148,9 +148,9 @@ jobs:
 
       - name: Подготовить SSH
         env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.MAX_MINI_APP_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.MAX_MINI_APP_DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
@@ -160,17 +160,17 @@ jobs:
           else
             # Запасной путь. Он слабее: ключ сервера берётся из сети прямо
             # сейчас, а не сверяется с известным заранее. Задайте
-            # DEPLOY_KNOWN_HOSTS (вывод `ssh-keyscan ваш-хост`), чтобы
+            # MAX_MINI_APP_DEPLOY_KNOWN_HOSTS (вывод `ssh-keyscan ваш-хост`), чтобы
             # подмена сервера не осталась незамеченной.
-            echo "::warning::DEPLOY_KNOWN_HOSTS не задан — ключ сервера не сверяется"
+            echo "::warning::MAX_MINI_APP_DEPLOY_KNOWN_HOSTS не задан — ключ сервера не сверяется"
             ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           fi
           chmod 600 ~/.ssh/known_hosts
 
       - name: Отправить конфигурацию стенда
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.MAX_MINI_APP_DEPLOY_USER }}
         run: |
           # Только compose-файл и конфиг Caddy. `.env` с паролями лежит на
           # сервере и деплоем не перезаписывается: секреты стенда не должны
@@ -186,8 +186,8 @@ jobs:
 
       - name: Обновить сервисы
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.MAX_MINI_APP_DEPLOY_USER }}
           IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
         run: |
           ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" bash -euo pipefail <<REMOTE
@@ -217,10 +217,10 @@ jobs:
 
       - name: Убедиться, что стенд отвечает
         env:
-          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+          DOMAIN: ${{ secrets.MAX_MINI_APP_DEPLOY_DOMAIN }}
         run: |
           if [ -z "$DOMAIN" ]; then
-            echo "::warning::DEPLOY_DOMAIN не задан — проверить стенд снаружи нечем"
+            echo "::warning::MAX_MINI_APP_DEPLOY_DOMAIN не задан — проверить стенд снаружи нечем"
             exit 0
           fi
           # Первый деплой ждёт выпуска сертификата, поэтому не одна попытка.
