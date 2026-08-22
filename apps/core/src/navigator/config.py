@@ -12,7 +12,7 @@ from functools import lru_cache
 from typing import Annotated, Literal, Self
 
 from pydantic import BeforeValidator, Field, SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Environment(StrEnum):
@@ -30,7 +30,15 @@ def _split_csv(value: object) -> object:
     return value
 
 
-CommaSeparatedList = Annotated[list[str], BeforeValidator(_split_csv)]
+#: Список, который в окружении задаётся через запятую.
+#:
+#: `NoDecode` обязателен, и без него всё ломается неочевидно: pydantic-settings
+#: считает любое поле-список «сложным» и пытается разобрать значение переменной
+#: окружения как JSON **до** валидаторов поля. Строка `http://a,http://b` — не
+#: JSON, источник падает с `error parsing value for field ...`, и до
+#: `BeforeValidator` дело не доходит. `NoDecode` отключает эту предобработку и
+#: отдаёт строку валидатору как есть.
+CommaSeparatedList = Annotated[list[str], NoDecode, BeforeValidator(_split_csv)]
 
 
 class Settings(BaseSettings):
