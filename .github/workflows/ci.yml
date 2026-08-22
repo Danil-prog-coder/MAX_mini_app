@@ -1,0 +1,275 @@
+# Проверки, без которых изменение не попадает в main.
+#
+# Разбито на параллельные задания намеренно: падение фронтенда не должно
+# прятать состояние бэкенда, а по имени упавшего задания сразу видно, где
+# смотреть. Порядок внутри задания — от быстрого к медленному: линтер найдёт
+# опечатку за секунды, и незачем ждать ради этого интеграционных тестов.
+#
+# Что здесь **не** делается: деплой. Он живёт в `deploy.yml` и запускается
+# только после зелёного прогона этого файла.
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  # Нужен deploy.yml: он подписан на завершение этого workflow.
+  workflow_dispatch:
+
+# Новый пуш в ту же ветку отменяет предыдущий прогон: держать очередь из
+# устаревших сборок незачем. Для main отмена выключена — его прогон
+# используется как условие деплоя.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # Версии зафиксированы: «latest» превращает чужой релиз в наше падение.
+  NODE_VERSION: '22'
+  PYTHON_VERSION: '3.13'
+  UV_VERSION: '0.9.9'
+
+jobs:
+  backend:
+    name: Бэкенд — линтеры, типы, тесты
+    runs-on: ubuntu-latest
+
+    # Настоящие Postgres и Redis, а не моки: интеграционные тесты проверяют
+    # запросы к базе, и подмена сервиса здесь означала бы зелёный прогон при
+    # сломанном SQL.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: navigator
+          POSTGRES_PASSWORD: navigator
+          POSTGRES_DB: navigator
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U navigator -d navigator"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://navigator:navigator@localhost:5432/navigator_test
+      TEST_REDIS_URL: redis://localhost:6379/9
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Поставить uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Поставить Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Создать базу для интеграционных тестов
+        # То же, что делает init-скрипт Postgres в docker-compose: тесты
+        # требуют отдельную базу и не должны идти по dev-базе (тех. ТЗ 7).
+        run: |
+          PGPASSWORD=navigator psql -h localhost -U navigator -d navigator \
+            -c 'CREATE DATABASE navigator_test OWNER navigator'
+
+      - name: Установить зависимости Core API
+        working-directory: apps/core
+        run: uv sync --locked --all-extras
+
+      - name: Линтер и формат — Core API
+        working-directory: apps/core
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Типы — Core API
+        working-directory: apps/core
+        run: uv run mypy
+
+      - name: Тесты Core API
+        working-directory: apps/core
+        # Интеграционные тесты сами пропускаются, если базы нет. В CI база
+        # есть, поэтому пропуск здесь означал бы дыру в проверке — падаем.
+        run: uv run pytest -q --strict-markers
+
+      - name: Миграции не разошлись с моделями
+        working-directory: apps/core
+        env:
+          DATABASE_URL: postgres://navigator:navigator@localhost:5432/navigator
+        # `aerich migrate` на чистой базе обязан сказать, что менять нечего.
+        # Забытая миграция — самая дорогая ошибка на выкладке: код уедет, а
+        # схема нет.
+        run: |
+          uv run aerich upgrade
+          output=$(uv run aerich migrate --name ci_drift_check 2>&1) || true
+          echo "$output"
+          if ! grep -qiE "no changes|нет изменений" <<<"$output"; then
+            echo "::error::модели разошлись с миграциями — сгенерируйте миграцию через aerich migrate"
+            exit 1
+          fi
+
+      - name: Установить зависимости AI Gateway
+        working-directory: apps/ai-gateway
+        run: uv sync --locked --all-extras
+
+      - name: Линтер, типы и тесты AI Gateway
+        working-directory: apps/ai-gateway
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy
+          uv run pytest -q
+
+      - name: Границы доменов не нарушены
+        working-directory: apps/core
+        # Отдельным шагом, хотя тест уже прогнан выше: правило из тех. ТЗ 1.1
+        # ломается тихо, и в списке шагов оно должно быть видно по имени.
+        run: uv run pytest tests/test_domain_boundaries.py -q
+
+  frontend:
+    name: Фронтенд — линтеры, типы, юнит-тесты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Линтер
+        run: pnpm --filter miniapp lint
+
+      - name: Формат
+        run: pnpm --filter miniapp format:check
+
+      - name: Типы
+        run: pnpm --filter miniapp typecheck
+
+      - name: Юнит-тесты
+        run: pnpm --filter miniapp test
+
+  contract:
+    name: Типы фронта совпадают со схемой бэкенда
+    runs-on: ubuntu-latest
+    # Отдельное задание, потому что проверка живёт на стыке: ей нужны и
+    # Python (снять схему OpenAPI), и Node (сгенерировать типы).
+    #
+    # Смысл проверки. Типы фронта генерируются из схемы (тех. ТЗ 8.6). Если
+    # бэкенд поменял контракт, а `make api-types` никто не прогнал, фронт
+    # собирается на вчерашней схеме: TypeScript молчит, а ломается уже в
+    # браузере у пользователя. Фронт и бэкенд пишут разные люди — значит
+    # рассинхрон вопрос времени, а не случайность.
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Перегенерировать типы из схемы
+        run: make api-types
+
+      - name: Проверить, что ничего не изменилось
+        run: |
+          if ! git diff --exit-code apps/miniapp/src/shared/api/schema.d.ts; then
+            echo "::error::типы разошлись со схемой — прогоните make api-types и закоммитьте результат"
+            exit 1
+          fi
+
+  e2e:
+    name: E2E — оба профиля устройств
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Поставить Chromium
+        # Только он: оба профиля из playwright.config — мобильный и
+        # десктопный — это один браузер с разными размерами и вводом.
+        run: pnpm --filter miniapp exec playwright install --with-deps chromium
+
+      - name: Обход всех экранов на мобильном и десктопном профиле
+        # Обязательная проверка требования №1 продуктового ТЗ (п. 1.1):
+        # кнопка «Главное меню» на каждом зарегистрированном экране.
+        # Кроссплатформенность — критерий приёмки (ТЗ 0.2).
+        run: pnpm --filter miniapp test:e2e
+
+      - name: Сохранить отчёт упавших тестов
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/miniapp/playwright-report
+          retention-days: 7
+
+  images:
+    name: Образы Docker собираются
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Core API
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/core/Dockerfile
+          push: false
+          cache-from: type=gha,scope=core
+          cache-to: type=gha,scope=core,mode=max
+
+      - name: AI Gateway
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/ai-gateway/Dockerfile
+          push: false
+          cache-from: type=gha,scope=ai
+          cache-to: type=gha,scope=ai,mode=max
+
+      - name: Мини-приложение (продовая стадия с nginx)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/miniapp/Dockerfile
+          target: production
+          push: false
+          cache-from: type=gha,scope=miniapp
+          cache-to: type=gha,scope=miniapp,mode=max

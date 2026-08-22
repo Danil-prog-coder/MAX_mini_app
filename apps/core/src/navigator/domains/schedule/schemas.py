@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from navigator.domains.schedule.service import (
     MAX_TITLE_LENGTH,
+    CalendarEvent,
     DayLesson,
     PersonalDeadline,
     StudyGroup,
@@ -95,3 +96,38 @@ class DeadlineIn(BaseModel):
 
     title: str = Field(min_length=1, max_length=MAX_TITLE_LENGTH)
     due_date: date
+
+
+# ─── календарь на главной (уточнение У32) ────────────────────────────────────
+
+
+class CalendarEventOut(BaseModel):
+    """Событие календаря. Один вид на все источники, различает их `kind`."""
+
+    day: date
+    title: str
+    note: str
+    #: `personal` — своё событие, `admission` — приём документов в отслеживаемом
+    #: вузе, `lesson` — пары по расписанию группы.
+    kind: str
+    #: Есть только у своих событий: чужие удалять нечем и незачем.
+    event_id: int | None
+
+    @classmethod
+    def of(cls, event: CalendarEvent) -> Self:
+        return cls(
+            day=event.day,
+            title=event.title,
+            note=event.note,
+            kind=event.kind,
+            event_id=event.event_id,
+        )
+
+
+class CalendarEventIn(BaseModel):
+    """Событие, заведённое прямо в календаре (уточнение У32)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=MAX_TITLE_LENGTH)
+    day: date

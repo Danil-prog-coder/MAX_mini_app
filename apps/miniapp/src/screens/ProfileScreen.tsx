@@ -22,7 +22,6 @@ import {
   STATUS_LABELS,
   useConfirmVerification,
   useProfile,
-  useUniversities,
   useUpdateProfile,
   type Profile,
   type UserStatus,
@@ -33,6 +32,7 @@ import { Button } from '@/shared/ui/Button';
 import { buttonClass } from '@/shared/ui/buttonStyles';
 import { ScreenHeader } from '@/shared/ui/ScreenHeader';
 import { Sheet } from '@/shared/ui/Sheet';
+import { UniversityPicker } from '@/shared/ui/UniversityPicker';
 
 const STATUSES: readonly UserStatus[] = ['school', 'applicant', 'student'];
 
@@ -201,12 +201,13 @@ function ProfileView({
 
       {update.isError && <Hint>Не удалось сохранить профиль. Попробуйте ещё раз.</Hint>}
 
-      <UniversitySheet
+      <UniversityPicker
         open={picker === 'university'}
         onClose={onClosePicker}
+        title="Выберите вуз"
         selected={profile.university?.id ?? null}
-        onSelect={(id) => {
-          update.mutate({ university_id: id });
+        onSelect={(university) => {
+          update.mutate({ university_id: university.id });
           onClosePicker();
         }}
       />
@@ -295,48 +296,6 @@ function VerificationRow({
         Подтвердить
       </Button>
     </div>
-  );
-}
-
-function UniversitySheet({
-  open,
-  onClose,
-  selected,
-  onSelect,
-}: {
-  readonly open: boolean;
-  readonly onClose: () => void;
-  readonly selected: number | null;
-  readonly onSelect: (id: number) => void;
-}) {
-  const universities = useUniversities();
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) onClose();
-      }}
-      title="Выберите вуз"
-    >
-      {universities.isPending && <SheetHint>Загружаю справочник…</SheetHint>}
-      {universities.isError && <SheetHint>Не удалось загрузить список вузов.</SheetHint>}
-      {universities.data?.map((university) => (
-        <Button
-          key={university.id}
-          variant={university.id === selected ? 'dark' : 'outline'}
-          className="flex-none justify-start px-5 py-4 text-left text-[15px]"
-          onClick={() => {
-            onSelect(university.id);
-          }}
-        >
-          <span className="min-w-0 flex-1">
-            {university.short_name}
-            <span className="block text-[12px] text-neutral-600">{university.city}</span>
-          </span>
-        </Button>
-      ))}
-    </Sheet>
   );
 }
 

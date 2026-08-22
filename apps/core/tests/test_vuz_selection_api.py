@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from navigator.config import Settings
+from navigator.domains.career_test import service as career_test
 from navigator.domains.users import service as users
 from navigator.domains.vuz_selection import service
 from tests.conftest import as_user
@@ -352,3 +353,114 @@ class TestProgramsSync:
         assert report.updated == 1
         restored = await service.AdmissionProgram.get(id=program.id)
         assert restored.passing_score == expected
+
+
+class TestCareerTestRanking:
+    """Порядок выдачи с учётом профориентационного теста (уточнение У30)."""
+
+    async def pass_test(self, client: httpx.AsyncClient, option_index: int) -> list[str]:
+        """Проходит тест, выбирая всюду вариант с этим номером. Возвращает топ-3."""
+        await career_test.sync_questions()
+        items = (await client.get("/api/v1/career-test/questions", headers=as_user("u-1"))).json()
+        response = await client.post(
+            "/api/v1/career-test/submit",
+            headers=as_user("u-1"),
+            json={"option_ids": [question["options"][option_index]["id"] for question in items]},
+        )
+        assert response.status_code == 200
+        codes: list[str] = [item["code"] for item in response.json()["top_directions"]]
+        return codes
+
+    async def test_without_the_test_the_answer_says_so(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        """Тест не пройден — выдача есть, но она честно помечена как без него."""
+        await seed_all(integration_settings)
+        await save_scores(api_client, TECH_SCORES)
+
+        body = await matches(api_client)
+
+        assert body["items"], "без теста подбор всё равно работает"
+        assert body["career_test_applied"] is False
+        assert body["career_test_directions"] == []
+
+    async def test_passed_test_lifts_its_directions_to_the_top(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        """Направления из теста идут первыми, а флаг это подтверждает."""
+        await seed_all(integration_settings)
+        await save_scores(api_client, TECH_SCORES)
+        top = await self.pass_test(api_client, 0)
+
+        body = await matches(api_client)
+
+        assert body["career_test_applied"] is True
+        assert body["career_test_directions"] == top
+        codes = [item["direction"]["code"] for item in body["items"]]
+        lifted = [code for code in codes if code in top]
+        assert codes[: len(lifted)] == lifted, "направления теста должны идти подряд сверху"
+
+    async def test_the_test_changes_order_but_not_chances(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        """Тест — это порядок, а не расчёт: набор программ и метки те же.
+
+        Иначе он бы молча менял смысл выдачи: человек видел бы другой шанс на
+        то же направление в зависимости от того, проходил ли тест.
+        """
+        await seed_all(integration_settings)
+        await save_scores(api_client, TECH_SCORES)
+        before = {
+            (item["university"]["id"], item["direction"]["code"]): item["chance"]
+            for item in (await matches(api_client))["items"]
+        }
+
+        await self.pass_test(api_client, 0)
+        after = {
+            (item["university"]["id"], item["direction"]["code"]): item["chance"]
+            for item in (await matches(api_client))["items"]
+        }
+
+        assert after == before
+
+    async def test_lifted_directions_follow_the_test_order(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        """Поднятые направления идут в порядке соответствия тесту.
+
+        Не «все поднятые вперемешку», а первое направление теста целиком, за
+        ним второе, за ним третье: человек ждёт сверху именно то, что тест
+        назвал самым близким.
+        """
+        await seed_all(integration_settings)
+        await save_scores(api_client, TECH_SCORES)
+        top = await self.pass_test(api_client, 0)
+
+        codes = [item["direction"]["code"] for item in (await matches(api_client))["items"]]
+        lifted = [code for code in codes if code in top]
+
+        assert lifted == sorted(lifted, key=top.index)
+
+    async def test_order_by_chance_survives_inside_one_direction(
+        self, api_client: httpx.AsyncClient, integration_settings: Settings
+    ) -> None:
+        """Внутри направления порядок остаётся прежним — по шансу, а не случайным.
+
+        Тест меняет только то, какое направление выше. Внутри направления
+        сортировка по шансу обязана уцелеть, иначе поднятие наверх ломало бы
+        главный смысл экрана — «куда я реально прохожу».
+        """
+        await seed_all(integration_settings)
+        await save_scores(api_client, TECH_SCORES)
+
+        def by_direction(items: list[dict[str, Any]]) -> dict[str, list[int]]:
+            grouped: dict[str, list[int]] = {}
+            for item in items:
+                grouped.setdefault(item["direction"]["code"], []).append(item["university"]["id"])
+            return grouped
+
+        before = by_direction((await matches(api_client))["items"])
+        await self.pass_test(api_client, 0)
+        after = by_direction((await matches(api_client))["items"])
+
+        assert after == before

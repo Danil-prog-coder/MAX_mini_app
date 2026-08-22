@@ -7,13 +7,23 @@
  *
  * Цифры приёмной кампании подписаны как демонстрационные: выдавать их за
  * официальные нельзя (уточнения У4, Д3).
+ *
+ * Порядок выдачи учитывает профориентационный тест, и экран обязан сказать это
+ * прямо — плашкой над списком (уточнение У30). Список открывается первой
+ * десяткой и растёт по пять: сорок карточек подряд читать невозможно, а
+ * «показать все» одним нажатием прячет от человека, сколько их вообще.
  */
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { useDirections, useMatches, type Match } from '@/shared/api/vuzSelection';
 import { buttonClass } from '@/shared/ui/buttonStyles';
 import { ChanceLabel } from '@/shared/ui/ChanceLabel';
 import { ScreenHeader } from '@/shared/ui/ScreenHeader';
+
+/** Сколько карточек видно сразу и на сколько растёт список (уточнение У30). */
+const FIRST_PAGE = 10;
+const PAGE_STEP = 5;
 
 export function VuzSelectionResultsScreen() {
   const [params] = useSearchParams();
@@ -29,6 +39,20 @@ export function VuzSelectionResultsScreen() {
   const all = matches.data?.items ?? [];
   const items =
     directionCode === null ? all : all.filter((m) => m.direction.code === directionCode);
+
+  const [visible, setVisible] = useState(FIRST_PAGE);
+  // Смена фильтра — это новый список, и показывать его сразу развёрнутым
+  // неправильно: человек не просил показать всё, он сменил направление.
+  // Сброс идёт прямо в рендере, а не эффектом: это подстройка состояния под
+  // изменившийся пропс, и эффект здесь дал бы лишний проход рендера.
+  const [pagedFor, setPagedFor] = useState(directionCode);
+  if (pagedFor !== directionCode) {
+    setPagedFor(directionCode);
+    setVisible(FIRST_PAGE);
+  }
+
+  const shown = items.slice(0, visible);
+  const hidden = items.length - shown.length;
 
   return (
     <>
@@ -87,13 +111,70 @@ export function VuzSelectionResultsScreen() {
       )}
 
       {items.length > 0 && (
-        <div className="mt-[22px] flex flex-col gap-[10px]">
-          {items.map((match, position) => (
-            <MatchCard key={match.program_id} match={match} position={position} />
-          ))}
-        </div>
+        <>
+          <CareerTestNote applied={matches.data?.career_test_applied ?? false} />
+
+          <div className="mt-3 flex flex-col gap-[10px]">
+            {shown.map((match, position) => (
+              <MatchCard key={match.program_id} match={match} position={position} />
+            ))}
+          </div>
+
+          {hidden > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setVisible((current) => current + PAGE_STEP);
+              }}
+              className={buttonClass('outline', 'mt-3 w-full px-[10px] py-[15px] text-[13px]')}
+            >
+              Показать ещё {Math.min(PAGE_STEP, hidden)} из {hidden}
+            </button>
+          )}
+        </>
       )}
     </>
+  );
+}
+
+/**
+ * Плашка над списком: учтён ли профориентационный тест (уточнение У30).
+ *
+ * Она есть в обоих состояниях. Показывать её только при пройденном тесте
+ * бессмысленно: человек, который тест не проходил, как раз и не знает, что
+ * выдачу можно улучшить, — поэтому второе состояние ведёт на тест.
+ */
+function CareerTestNote({ applied }: { readonly applied: boolean }) {
+  if (applied) {
+    return (
+      <div className="mt-[22px] rounded-[22px] bg-accent-200 px-[18px] py-[13px]">
+        <div className="text-[10px] font-bold tracking-[0.16em] text-accent-700">
+          НА ОСНОВЕ ПРОФТЕСТИРОВАНИЯ
+        </div>
+        <p className="mt-1 text-[12px] text-pretty text-neutral-700">
+          Сверху — направления, которые тест назвал самыми близкими. Внутри направления порядок по
+          шансу поступить.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-[22px] rounded-[22px] border-[1.5px] border-neutral-400 px-[18px] py-[13px]">
+      <div className="text-[10px] font-bold tracking-[0.16em] text-neutral-600">
+        НЕ УЧИТЫВАЕТ ПРОФТЕСТИРОВАНИЕ
+      </div>
+      <p className="mt-1 text-[12px] text-pretty text-neutral-700">
+        Список отсортирован только по шансу поступить. Пройдите тест — и сверху окажутся направления
+        по вашей специфике.
+      </p>
+      <Link
+        to="/career-test"
+        className={buttonClass('accent', 'mt-3 inline-flex px-4 py-[9px] text-[12px]')}
+      >
+        Пройти тест
+      </Link>
+    </div>
   );
 }
 

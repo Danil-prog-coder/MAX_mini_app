@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from math import cos, radians
 from typing import Any, Final, Protocol, runtime_checkable
 
 from navigator.domains.food.models import PlaceKind
@@ -78,18 +79,68 @@ _SHOPS: Final = (("Продукты у корпуса", "магазин", 6),)
 _ASSORTMENT: Final = ("маленький", "средний", "большой")
 
 
-def _deeplink(latitude: float, longitude: float, name: str) -> str:
-    """Ссылка на карточку места в Яндекс.Картах (ТЗ 7.6).
+def _deeplink(latitude: float, longitude: float) -> str:
+    """Ссылка на выбранную точку в Яндекс.Картах (ТЗ 7.6, уточнение У29).
 
-    У фикстуры настоящего идентификатора организации нет, поэтому ссылка ведёт
-    в точку на карте с подставленным названием — это ближайшее к «карточке
-    конкретного места», что можно сделать без ключа. Настоящая реализация
-    подставит сюда ссылку на организацию.
+    Три параметра, и каждый обязателен:
+
+    - `ll` центрирует карту на точке. Без него карта открывается там, где
+      пользователь был в прошлый раз, и метка оказывается за экраном;
+    - `pt` ставит метку `pm2rdm` — красную с точкой, стандартную для «вот это
+      место»;
+    - `z=17` — масштаб, на котором виден дом, а не квартал.
+
+    Параметра `text` здесь намеренно нет. Раньше он был, и из-за него ссылка
+    работала не так, как обещала: Яндекс.Карты воспринимают `text` как
+    поисковый запрос, открывают выдачу по названию и теряют переданную точку.
+    Пользователь видел общий поиск вместо выбранного места — ровно та жалоба,
+    из-за которой ссылка и переписана.
+
+    У фикстуры настоящего идентификатора организации нет, поэтому это ссылка на
+    координату, а не на карточку организации. Настоящая реализация подставит
+    сюда `https://yandex.ru/maps/org/<id>/`, и метка станет карточкой места.
     """
-    return (
-        f"https://yandex.ru/maps/?pt={longitude:.6f},{latitude:.6f}&z=18"
-        f"&text={name.replace(' ', '+')}"
-    )
+    point = f"{longitude:.6f},{latitude:.6f}"
+    return f"https://yandex.ru/maps/?ll={point}&z=17&pt={point},pm2rdm"
+
+
+#: Направления, в которых фикстура расставляет точки вокруг корпуса. Восемь
+#: румбов, (север, восток) в долях градуса на километр по каждой оси.
+_BEARINGS: Final = (
+    (0.0, 1.0),
+    (0.7, 0.7),
+    (1.0, 0.0),
+    (0.7, -0.7),
+    (0.0, -1.0),
+    (-0.7, -0.7),
+    (-1.0, 0.0),
+    (-0.7, 0.7),
+)
+
+#: Метров в минуте пешком. Пешеход идёт примерно 1.3 м/с, но не по прямой,
+#: поэтому по карте выходит ближе, чем по шагомеру.
+_METERS_PER_MINUTE: Final = 70
+
+#: Метров в одном градусе широты. Для долготы делится на косинус широты, но на
+#: расстояниях в сотни метров разницей можно пренебречь — точка всё равно
+#: демонстрационная.
+_METERS_PER_DEGREE: Final = 111_320
+
+
+def _around(latitude: float, longitude: float, index: int, minutes: int) -> tuple[float, float]:
+    """Координата точки в стороне от корпуса.
+
+    Без этого все точки фикстуры лежали бы ровно в координате вуза, и «открыть
+    на карте» у столовой, шаурмы и магазина вело бы в одно и то же место —
+    пользователю это видно сразу же.
+
+    Расстояние берётся из времени ходьбы, направление — из индекса, поэтому
+    расстановка детерминирована: демонстрация не прыгает между запросами.
+    """
+    north, east = _BEARINGS[index % len(_BEARINGS)]
+    shift = minutes * _METERS_PER_MINUTE / _METERS_PER_DEGREE
+    # Долгота на широте России «короче» широты, иначе точки уезжают на восток.
+    return latitude + north * shift, longitude + east * shift / cos(radians(latitude))
 
 
 class FixtureFoodSource:
@@ -120,7 +171,7 @@ class FixtureFoodSource:
                     kind=PlaceKind.catering,
                     place_type=place_type,
                     address=f"{address}, {_side(university_id, index)}",
-                    map_deeplink=_deeplink(latitude, longitude, name),
+                    map_deeplink=_deeplink(*_around(latitude, longitude, index, minutes)),
                     distance_score=_score(minutes),
                     walk_minutes=minutes,
                     rating=rating,
@@ -135,7 +186,9 @@ class FixtureFoodSource:
                     kind=PlaceKind.shop,
                     place_type=place_type,
                     address=f"{address}, {_side(university_id, index + len(_CATERING))}",
-                    map_deeplink=_deeplink(latitude, longitude, name),
+                    map_deeplink=_deeplink(
+                        *_around(latitude, longitude, index + len(_CATERING), minutes)
+                    ),
                     distance_score=_score(minutes),
                     walk_minutes=minutes,
                     extra_attrs={

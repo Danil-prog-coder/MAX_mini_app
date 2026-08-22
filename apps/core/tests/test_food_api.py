@@ -106,14 +106,27 @@ class TestNearby:
     async def test_every_spot_links_to_a_place_not_a_search(
         self, api_client: httpx.AsyncClient, integration_settings: Settings
     ) -> None:
-        """ТЗ 7.6: ссылка на конкретное место, с точкой на карте и адресом."""
+        """ТЗ 7.6 и уточнение У29: карта открывается на выбранной точке.
+
+        Три проверки, и каждая из-за настоящей жалобы: без `ll` карта
+        открывается там, где пользователь был в прошлый раз; с `text` она
+        показывает поиск по названию вместо точки; с одинаковыми координатами
+        все точки ведут в одно место.
+        """
         await users.sync_universities()
         await make_student(api_client)
 
+        links = []
         for item in (await nearby(api_client))["items"]:
-            assert item["map_deeplink"].startswith("https://yandex.ru/maps/")
-            assert "pt=" in item["map_deeplink"]
+            link = item["map_deeplink"]
+            assert link.startswith("https://yandex.ru/maps/")
+            assert "pt=" in link, "без метки точку на карте не видно"
+            assert "ll=" in link, "без центрирования метка оказывается за экраном"
+            assert "text=" not in link, "text открывает поиск и теряет точку"
             assert item["address"]
+            links.append(link)
+
+        assert len(set(links)) == len(links), "у каждой точки должна быть своя координата"
 
     async def test_spots_are_marked_as_demo_without_a_maps_key(
         self, api_client: httpx.AsyncClient, integration_settings: Settings

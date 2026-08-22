@@ -82,6 +82,25 @@ def test_cors_origins_accept_comma_separated_string(raw: str, expected: list[str
 
 
 @pytest.mark.usefixtures("isolated_env")
+def test_cors_origins_are_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Список приходит из переменной окружения, а не только из аргументов.
+
+    Разница не косметическая, и на ней уже один раз обожглись. Значение,
+    переданное аргументом, идёт прямо в валидаторы поля. Значение из окружения
+    сначала проходит через источник pydantic-settings, а тот считает поле-список
+    «сложным» и пытается разобрать его как JSON. Тест на запятые выше был
+    зелёным, а `docker compose up` падал на старте с
+    `error parsing value for field "cors_allow_origins"` — потому что в compose
+    переменная задана всегда.
+    """
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.cors_allow_origins == ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+@pytest.mark.usefixtures("isolated_env")
 def test_cors_origins_have_a_closed_default() -> None:
     origins = default_settings().cors_allow_origins
 

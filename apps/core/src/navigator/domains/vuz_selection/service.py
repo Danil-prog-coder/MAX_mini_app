@@ -14,6 +14,10 @@ from typing import Any
 from tortoise.transactions import in_transaction
 
 from navigator.config import Settings
+
+# Только сервисный слой соседнего домена: модели career_test отсюда не видны
+# (тех. ТЗ 1.1, проверяется тестом границ).
+from navigator.domains.career_test import service as career_test
 from navigator.domains.users import service as users
 from navigator.domains.vuz_selection.catalogue import (
     DIRECTIONS,
@@ -55,6 +59,7 @@ __all__ = [
     "MatchedProgram",
     "Profile",
     "ProgramsSync",
+    "RankedMatches",
     "TrackedVuz",
     "UniversityCard",
     "UniversityNotFound",
@@ -64,6 +69,7 @@ __all__ = [
     "list_directions",
     "list_tracked",
     "matches_for",
+    "ranked_matches",
     "read_scores",
     "save_scores",
     "sync_directions",
@@ -273,6 +279,64 @@ async def matches_for(
             )
         )
     return matched
+
+
+@dataclass(frozen=True, slots=True)
+class RankedMatches:
+    """Выдача подбора вместе с тем, чем её отранжировали.
+
+    Флаг нужен экрану: он обязан честно сказать, учтён профориентационный тест
+    или нет (уточнение У30). Считать это на фронте по наличию результата теста
+    нельзя — тогда подпись и порядок разъедутся, как только изменится правило.
+    """
+
+    items: list[MatchedProgram]
+    #: Коды направлений из последнего результата теста, в порядке убывания
+    #: соответствия. Пусто — тест не пройден.
+    career_test_directions: tuple[str, ...]
+
+    @property
+    def career_test_applied(self) -> bool:
+        return bool(self.career_test_directions)
+
+
+async def ranked_matches(user: users.User) -> RankedMatches:
+    """Подбор с учётом профориентационного теста (уточнение У30).
+
+    Тест не меняет расчёт шанса — он остаётся арифметикой на проходных баллах
+    (тех. ТЗ 3.3). Тест меняет только порядок: направления из его топ-3
+    поднимаются наверх, внутри группы порядок по шансу сохраняется. Так человек
+    первыми видит вузы по своей специфике, но не теряет из виду, куда реально
+    проходит.
+
+    Сортировка стабильная — это здесь не деталь реализации, а условие: без неё
+    внутри группы порядок по шансу рассыпался бы.
+    """
+    matched = await matches_for(user)
+    codes = await career_test_directions(user)
+    if not codes:
+        return RankedMatches(items=matched, career_test_directions=())
+
+    rank = {code: position for position, code in enumerate(codes)}
+    matched.sort(key=lambda item: rank.get(item.direction.code, len(rank)))
+    return RankedMatches(items=matched, career_test_directions=tuple(codes))
+
+
+async def career_test_directions(user: users.User) -> tuple[str, ...]:
+    """Коды направлений из последнего результата теста.
+
+    Домен career_test спрашивается через его сервисный слой: модели соседнего
+    домена здесь не видны (тех. ТЗ 1.1).
+    """
+    result = await career_test.latest_result(user)
+    if result is None:
+        return ()
+    codes = []
+    for item in career_test.top_directions_of(result):
+        code = item.get("code")
+        if isinstance(code, str) and code:
+            codes.append(code)
+    return tuple(codes)
 
 
 # ─── отслеживаемые вузы (ТЗ 2.7) ─────────────────────────────────────────────
