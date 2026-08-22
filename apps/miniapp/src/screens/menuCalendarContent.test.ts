@@ -1,61 +1,92 @@
 /**
- * Тесты содержимого календаря.
+ * Тесты разметки календаря (уточнение У32).
  *
- * Проверяется не вёрстка, а перенос макета: сетка дней недели и выбор набора
- * событий по статусу. Ошибка здесь незаметна глазом — точки просто встанут на
- * день влево, — поэтому она ловится тестом, а не приёмкой.
+ * Даты — самое коварное место экрана: ошибка не видна глазом, сетка просто
+ * встаёт на день левее, и события оказываются не в тех клетках. Поэтому
+ * проверяются граничные случаи, а не «работает вообще».
  */
 import { describe, expect, it } from 'vitest';
 
 import {
-  CURRENT_MONTH_INDEX,
-  MONTHS,
-  TODAY,
-  emptyDayNote,
-  eventsOf,
-  monthAt,
+  daysInMonth,
+  firstWeekdayOf,
+  isoDate,
+  isoOf,
+  monthGenitive,
+  monthName,
+  monthOf,
+  monthRange,
+  sameMonth,
+  shiftMonth,
   weekdayOf,
 } from './menuCalendarContent';
 
+/** Месяцы в `Date` считаются от нуля: 7 — август. */
+const AUGUST_2026 = { year: 2026, month: 7 };
+
 describe('сетка месяца', () => {
-  it('первое число попадает на день недели из макета', () => {
-    // Июль 2026 начинается в среду: `first: 3` в макете.
-    expect(weekdayOf(monthAt(1), 1)).toBe('Ср');
-    expect(weekdayOf(monthAt(0), 1)).toBe('Пн');
-    expect(weekdayOf(monthAt(2), 1)).toBe('Сб');
+  it('первое число попадает на правильный день недели', () => {
+    // 1 августа 2026 — суббота, шестая колонка.
+    expect(firstWeekdayOf(AUGUST_2026)).toBe(6);
+    // 1 января 2026 — четверг.
+    expect(firstWeekdayOf({ year: 2026, month: 0 })).toBe(4);
+    // 1 марта 2026 — воскресенье: это седьмая колонка, а не нулевая.
+    expect(firstWeekdayOf({ year: 2026, month: 2 })).toBe(7);
   });
 
-  it('сегодняшнее число — понедельник, как в шапке макета', () => {
-    expect(weekdayOf(monthAt(CURRENT_MONTH_INDEX), TODAY)).toBe('Пн');
+  it('знает длину месяца, включая февраль високосного года', () => {
+    expect(daysInMonth(AUGUST_2026)).toBe(31);
+    expect(daysInMonth({ year: 2026, month: 3 })).toBe(30);
+    expect(daysInMonth({ year: 2026, month: 1 })).toBe(28);
+    expect(daysInMonth({ year: 2028, month: 1 })).toBe(29);
   });
 
-  it('неделя закольцована: восьмой день повторяет день недели первого', () => {
-    const month = monthAt(CURRENT_MONTH_INDEX);
-    expect(weekdayOf(month, 8)).toBe(weekdayOf(month, 1));
+  it('день недели числа совпадает с календарём', () => {
+    expect(weekdayOf(AUGUST_2026, 1)).toBe('Сб');
+    expect(weekdayOf(AUGUST_2026, 3)).toBe('Пн');
+    expect(weekdayOf(AUGUST_2026, 9)).toBe('Вс');
   });
 
-  it('индекс за границами не роняет календарь', () => {
-    expect(monthAt(-1)).toBe(MONTHS[CURRENT_MONTH_INDEX]);
-    expect(monthAt(MONTHS.length)).toBe(MONTHS[CURRENT_MONTH_INDEX]);
+  it('листание переходит через границу года', () => {
+    expect(shiftMonth({ year: 2026, month: 11 }, 1)).toEqual({ year: 2027, month: 0 });
+    expect(shiftMonth({ year: 2026, month: 0 }, -1)).toEqual({ year: 2025, month: 11 });
+  });
+
+  it('различает месяцы одного номера в разных годах', () => {
+    expect(sameMonth(AUGUST_2026, { year: 2026, month: 7 })).toBe(true);
+    expect(sameMonth(AUGUST_2026, { year: 2027, month: 7 })).toBe(false);
   });
 });
 
-describe('события дня', () => {
-  it('у студента и абитуриента разные события в один и тот же день', () => {
-    const applicant = eventsOf(false, CURRENT_MONTH_INDEX, TODAY);
-    const student = eventsOf(true, CURRENT_MONTH_INDEX, TODAY);
-
-    expect(applicant[0]?.title).toBe('Приём документов идёт');
-    expect(student[0]?.title).toBe('4 пары · с 09:00');
+describe('даты для API', () => {
+  it('дописывает ведущие нули', () => {
+    expect(isoDate(2026, 0, 5)).toBe('2026-01-05');
+    expect(isoDate(2026, 11, 31)).toBe('2026-12-31');
   });
 
-  it('день без событий отдаёт пустой список, а не undefined', () => {
-    expect(eventsOf(false, CURRENT_MONTH_INDEX, 2)).toEqual([]);
-    expect(eventsOf(true, CURRENT_MONTH_INDEX, 2)).toEqual([]);
+  it('берёт местную дату, а не UTC', () => {
+    // Вечер по местному времени — самый частый случай, когда toISOString()
+    // отдаёт вчерашний день и событие уезжает в соседнюю клетку.
+    const evening = new Date(2026, 7, 25, 23, 30);
+
+    expect(isoOf(evening)).toBe('2026-08-25');
+    expect(monthOf(evening)).toEqual(AUGUST_2026);
   });
 
-  it('текст пустого дня зависит от статуса', () => {
-    expect(emptyDayNote(true)).toContain('Ни пар, ни дедлайнов');
-    expect(emptyDayNote(false)).toContain('приёмной кампании');
+  it('период месяца — от первого числа до последнего', () => {
+    expect(monthRange(AUGUST_2026)).toEqual({ from: '2026-08-01', to: '2026-08-31' });
+    expect(monthRange({ year: 2028, month: 1 })).toEqual({
+      from: '2028-02-01',
+      to: '2028-02-29',
+    });
+  });
+});
+
+describe('названия месяцев', () => {
+  it('в шапке именительный, в заголовке дня родительный', () => {
+    expect(monthName(AUGUST_2026)).toBe('АВГУСТ');
+    expect(monthGenitive(AUGUST_2026)).toBe('АВГУСТА');
+    expect(monthName({ year: 2026, month: 4 })).toBe('МАЙ');
+    expect(monthGenitive({ year: 2026, month: 4 })).toBe('МАЯ');
   });
 });

@@ -100,7 +100,10 @@ test('шторка вуза показывает справочник сразу
   await installApiStub(page);
   await page.goto('/profile');
 
-  await page.getByRole('button', { name: /Изменить|Указать/ }).first().click();
+  await page
+    .getByRole('button', { name: /Изменить|Указать/ })
+    .first()
+    .click();
 
   // Список виден сразу, до первого символа.
   const options = page.getByRole('dialog').getByRole('button', { name: /У$|У\s/ });
@@ -117,7 +120,10 @@ test('поиск не находит — экран объясняет это, �
   await installApiStub(page);
   await page.goto('/profile');
 
-  await page.getByRole('button', { name: /Изменить|Указать/ }).first().click();
+  await page
+    .getByRole('button', { name: /Изменить|Указать/ })
+    .first()
+    .click();
   await page.getByRole('searchbox', { name: 'Поиск вуза' }).fill('щщщщщ');
 
   await expect(page.getByText(/ничего не нашлось/)).toBeVisible();
@@ -127,7 +133,10 @@ test('выбранный в поиске вуз попадает в профил
   await installApiStub(page);
   await page.goto('/profile');
 
-  await page.getByRole('button', { name: /Изменить|Указать/ }).first().click();
+  await page
+    .getByRole('button', { name: /Изменить|Указать/ })
+    .first()
+    .click();
   await page.getByRole('searchbox', { name: 'Поиск вуза' }).fill('мгу');
   await page.getByRole('dialog').getByRole('button', { name: /МГУ/ }).click();
 

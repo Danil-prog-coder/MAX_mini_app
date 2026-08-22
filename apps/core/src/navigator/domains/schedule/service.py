@@ -21,11 +21,13 @@ from navigator.domains.schedule.models import Lesson, PersonalDeadline, StudyGro
 from navigator.domains.schedule.sources import minutes_of, time_of, timetables
 from navigator.domains.users import service as users
 from navigator.domains.users.service import User
+from navigator.domains.vuz_selection import service as vuz_selection
 
 __all__ = [
     "MAX_DEADLINE_DAYS",
     "MAX_TITLE_LENGTH",
     "SCHEDULE_TIMEZONE",
+    "CalendarEvent",
     "DayLesson",
     "InvalidDeadline",
     "Lesson",
@@ -37,8 +39,11 @@ __all__ = [
     "UnknownGroup",
     "User",
     "add_deadline",
+    "add_personal_event",
     "bind_group",
+    "calendar_events",
     "deadline_reminders",
+    "delete_personal_event",
     "list_deadlines",
     "list_groups",
     "require_access",
@@ -170,9 +175,17 @@ async def list_deadlines(user: users.User, *, since: date | None = None) -> list
 
 
 async def add_deadline(user: users.User, title: str, due_date: date) -> PersonalDeadline:
-    """Добавляет личный дедлайн (ТЗ 4.5)."""
+    """Добавляет личный дедлайн из раздела «Расписание и дедлайны» (ТЗ 4.5)."""
     require_access(user)
+    return await _create_deadline(user, title, due_date)
 
+
+async def _create_deadline(user: users.User, title: str, due_date: date) -> PersonalDeadline:
+    """Проверки и запись. Общие для раздела 4 и для календаря на главной.
+
+    Вынесено, потому что правила одни и те же, а точки входа две: разъехавшись,
+    они дали бы дедлайн, который нельзя создать в одном месте и можно в другом.
+    """
     cleaned = title.strip()
     if not cleaned:
         raise InvalidDeadline("название не может быть пустым")
@@ -186,6 +199,141 @@ async def add_deadline(user: users.User, title: str, due_date: date) -> Personal
         raise InvalidDeadline(f"дата дальше чем через {MAX_DEADLINE_DAYS} дней")
 
     return await PersonalDeadline.create(user_id=user.id, title=cleaned, due_date=due_date)
+
+
+# ─── календарь на главной (уточнение У32) ─────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarEvent:
+    """Событие календаря на главном экране.
+
+    Один тип на все источники: пара из расписания, личный дедлайн и дедлайн
+    приёмной кампании отличаются для календаря только подписью и тем, можно ли
+    их удалить. `event_id` есть только у личных событий — остальные не
+    принадлежат пользователю и удаляться не могут.
+    """
+
+    day: date
+    title: str
+    note: str
+    kind: str
+    event_id: int | None = None
+
+
+async def calendar_events(user: users.User, start: date, end: date) -> list[CalendarEvent]:
+    """Всё, что показывает календарь за период, от `start` до `end` включительно.
+
+    Раздел 4 закрыт статусом (ТЗ 4.2), а календарь на главной — нет: он есть у
+    всех, поэтому `require_access` здесь не вызывается. Пары всё равно попадают
+    только к студенту с выбранной группой: у остальных группы просто нет.
+
+    Три источника:
+
+    - личные события и дедлайны — свои у каждого пользователя;
+    - дедлайны приёмной кампании отслеживаемых вузов — настоящие даты из
+      справочника, а не выдумка (ТЗ 3, уточнение У32);
+    - пары по расписанию группы — у студента.
+    """
+    events: list[CalendarEvent] = []
+
+    for deadline in await PersonalDeadline.filter(
+        user_id=user.id, due_date__gte=start, due_date__lte=end
+    ).order_by("due_date", "id"):
+        events.append(
+            CalendarEvent(
+                day=deadline.due_date,
+                title=deadline.title,
+                note="ваше событие · напомню за сутки",
+                kind="personal",
+                event_id=deadline.id,
+            )
+        )
+
+    events.extend(await _admission_events(user, start, end))
+    events.extend(await _lesson_events(user, start, end))
+    events.sort(key=lambda event: (event.day, event.kind, event.title))
+    return events
+
+
+async def _admission_events(user: users.User, start: date, end: date) -> list[CalendarEvent]:
+    """Даты окончания приёма в отслеживаемых вузах.
+
+    Домен vuz_selection спрашивается через сервисный слой: его модели здесь не
+    видны (тех. ТЗ 1.1).
+    """
+    events: list[CalendarEvent] = []
+    for tracked in await vuz_selection.list_tracked(user):
+        university = await users.get_university(tracked.university_id)
+        if university is None or university.admission_deadline is None:
+            continue
+        if not (start <= university.admission_deadline <= end):
+            continue
+        events.append(
+            CalendarEvent(
+                day=university.admission_deadline,
+                title="Последний день приёма документов",
+                note=f"{university.short_name} · вуз в вашем трекере",
+                kind="admission",
+            )
+        )
+    return events
+
+
+async def _lesson_events(user: users.User, start: date, end: date) -> list[CalendarEvent]:
+    """Пары группы по дням периода.
+
+    Расписание в модели недельное — по дню недели, — поэтому события считаются
+    раскладкой недели на календарные дни, а не выборкой по дате.
+    """
+    if not user.group_name or user.university_id is None:
+        return []
+    group = await StudyGroup.get_or_none(university_id=user.university_id, name=user.group_name)
+    if group is None:
+        return []
+
+    by_weekday: dict[int, list[Lesson]] = {}
+    for lesson in await Lesson.filter(group_id=group.id).order_by("starts_at_minutes"):
+        by_weekday.setdefault(lesson.weekday, []).append(lesson)
+    if not by_weekday:
+        return []
+
+    events: list[CalendarEvent] = []
+    day = start
+    while day <= end:
+        lessons = by_weekday.get(day.weekday(), [])
+        if lessons:
+            first = lessons[0]
+            events.append(
+                CalendarEvent(
+                    day=day,
+                    title=f"{len(lessons)} пар · с {time_of(first.starts_at_minutes)}",
+                    note=", ".join(lesson.title for lesson in lessons),
+                    kind="lesson",
+                )
+            )
+        day += timedelta(days=1)
+    return events
+
+
+async def add_personal_event(user: users.User, title: str, day: date) -> PersonalDeadline:
+    """Событие, добавленное прямо в календаре на главной (уточнение У32).
+
+    Это тот же личный дедлайн, что и в блоке 4, и намеренно: заказчик просил,
+    чтобы дедлайн из «Расписания» попадал в календарь. Два независимых хранилища
+    развели бы одно и то же по двум спискам, и человеку пришлось бы помнить, где
+    он что завёл.
+
+    Отличие от `add_deadline` одно: раздел 4 закрыт статусом, а календарь на
+    главной открыт всем, поэтому проверки доступа здесь нет.
+    """
+    return await _create_deadline(user, title, day)
+
+
+async def delete_personal_event(user: users.User, event_id: int) -> bool:
+    """Удаляет своё событие. Чужое не трогает: фильтр по пользователю обязателен."""
+    deleted = await PersonalDeadline.filter(id=event_id, user_id=user.id).delete()
+    return bool(deleted)
 
 
 @dataclass(frozen=True, slots=True)

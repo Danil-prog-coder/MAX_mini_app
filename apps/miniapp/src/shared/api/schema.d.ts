@@ -4,6 +4,69 @@
  */
 
 export interface paths {
+    "/api/v1/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * События календаря
+         * @description События за период: свои, приёмная кампания отслеживаемых вузов и пары.
+         */
+        get: operations["read_calendar_api_v1_calendar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calendar/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Добавить своё событие
+         * @description Событие, заведённое прямо в календаре (уточнение У32).
+         *
+         *     Это тот же личный дедлайн, что и в разделе 4: заказчик просил, чтобы
+         *     заведённый там дедлайн появлялся в календаре, а значит хранилище одно.
+         */
+        post: operations["add_calendar_event_api_v1_calendar_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calendar/events/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Удалить своё событие
+         * @description Удаляет только своё: опечатка в названии не должна жить вечно.
+         */
+        delete: operations["delete_calendar_event_api_v1_calendar_events__event_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/career-test/questions": {
         parameters: {
             query?: never;
@@ -672,7 +735,7 @@ export interface paths {
         };
         /**
          * Вузы с метками шанса
-         * @description Список направлений в вузах (ТЗ 2.5, уточнение У28).
+         * @description Список направлений в вузах (ТЗ 2.5, уточнение У30).
          *
          *     Расчёт шанса детерминированный и живёт в сервисном слое, а не в LLM: это
          *     арифметика на исторических проходных баллах (тех. ТЗ 3.3). Профориентационный
@@ -876,6 +939,38 @@ export interface components {
         BindGroupIn: {
             /** Group Name */
             group_name: string;
+        };
+        /**
+         * CalendarEventIn
+         * @description Событие, заведённое прямо в календаре (уточнение У32).
+         */
+        CalendarEventIn: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Title */
+            title: string;
+        };
+        /**
+         * CalendarEventOut
+         * @description Событие календаря. Один вид на все источники, различает их `kind`.
+         */
+        CalendarEventOut: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Event Id */
+            event_id: number | null;
+            /** Kind */
+            kind: string;
+            /** Note */
+            note: string;
+            /** Title */
+            title: string;
         };
         /**
          * CategoryOut
@@ -1833,6 +1928,105 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    read_calendar_api_v1_calendar_get: {
+        parameters: {
+            query: {
+                date_from: string;
+                date_to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEventOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_calendar_event_api_v1_calendar_events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalendarEventIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEventOut"];
+                };
+            };
+            /** @description Пустое название или невозможная дата */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_calendar_event_api_v1_calendar_events__event_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Своего события с таким идентификатором нет */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     read_questions_api_v1_career_test_questions_get: {
         parameters: {
             query?: never;

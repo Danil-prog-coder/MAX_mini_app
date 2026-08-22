@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,6 +11,8 @@ from navigator.api.auth import CurrentUser
 from navigator.domains.schedule import service
 from navigator.domains.schedule.schemas import (
     BindGroupIn,
+    CalendarEventIn,
+    CalendarEventOut,
     DeadlineIn,
     DeadlineOut,
     GroupOut,
@@ -94,3 +97,78 @@ async def add_deadline(user: StudentUser, payload: DeadlineIn) -> DeadlineOut:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
         ) from error
     return DeadlineOut.of(deadline)
+
+
+# ─── календарь на главной (уточнение У32) ────────────────────────────────────
+#
+# Отдельный роутер, а не часть `/schedule`, и это принципиально: раздел 4 закрыт
+# статусом «Студент» (ТЗ 4.2), а календарь на главной есть у всех — и у
+# школьника, и у абитуриента. Повесить его на закрытый префикс значило бы
+# отдать главный экран под гейт.
+
+calendar_router = APIRouter(prefix="/calendar", tags=["calendar"])
+
+#: Предел окна выборки. Календарь листается по месяцу, поэтому просить больше
+#: года незачем, а без предела запрос «с 1970 по 2200» разложил бы все пары
+#: расписания по дням в памяти.
+MAX_CALENDAR_DAYS = 400
+
+
+@calendar_router.get("", response_model=list[CalendarEventOut], summary="События календаря")
+async def read_calendar(
+    user: CurrentUser,
+    date_from: date,
+    date_to: date,
+) -> list[CalendarEventOut]:
+    """События за период: свои, приёмная кампания отслеживаемых вузов и пары."""
+    if date_to < date_from:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="конец периода раньше начала",
+        )
+    if (date_to - date_from).days > MAX_CALENDAR_DAYS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"период длиннее {MAX_CALENDAR_DAYS} дней",
+        )
+    events = await service.calendar_events(user, date_from, date_to)
+    return [CalendarEventOut.of(event) for event in events]
+
+
+@calendar_router.post(
+    "/events",
+    response_model=CalendarEventOut,
+    summary="Добавить своё событие",
+    responses={422: {"description": "Пустое название или невозможная дата"}},
+)
+async def add_calendar_event(user: CurrentUser, payload: CalendarEventIn) -> CalendarEventOut:
+    """Событие, заведённое прямо в календаре (уточнение У32).
+
+    Это тот же личный дедлайн, что и в разделе 4: заказчик просил, чтобы
+    заведённый там дедлайн появлялся в календаре, а значит хранилище одно.
+    """
+    try:
+        deadline = await service.add_personal_event(user, payload.title, payload.day)
+    except service.InvalidDeadline as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return CalendarEventOut(
+        day=deadline.due_date,
+        title=deadline.title,
+        note="ваше событие · напомню за сутки",
+        kind="personal",
+        event_id=deadline.id,
+    )
+
+
+@calendar_router.delete(
+    "/events/{event_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Удалить своё событие",
+    responses={404: {"description": "Своего события с таким идентификатором нет"}},
+)
+async def delete_calendar_event(user: CurrentUser, event_id: int) -> None:
+    """Удаляет только своё: опечатка в названии не должна жить вечно."""
+    if not await service.delete_personal_event(user, event_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="события нет")

@@ -411,6 +411,9 @@ interface StubState {
   mutedKinds: Set<string>;
   /** Пройден ли профориентационный тест (уточнение У30). */
   careerTestApplied: boolean;
+  /** События календаря на главной (уточнение У32). */
+  calendar: { day: string; title: string; note: string; kind: string; event_id: number | null }[];
+  nextCalendarId: number;
   /** Программы, из которых собирается выдача подбора. */
   programs: typeof PROGRAMS;
   tickets: {
@@ -581,6 +584,8 @@ function positionsBody(universityId: number, state: StubState) {
 
 /** Раздел закрыт по статусу: заглушка отвечает 403, как настоящий API. */
 const FORBIDDEN = Symbol('forbidden');
+/** Ответ без тела: настоящий API отвечает на удаление 204. */
+const NO_CONTENT = Symbol('no-content');
 
 /** Что отдавать на какой путь. Ключ — метод и путь без строки запроса. */
 function response(method: string, path: string, body: unknown, state: StubState): unknown {
@@ -610,6 +615,31 @@ function response(method: string, path: string, body: unknown, state: StubState)
     return withAccess(state.profile);
   }
   if (method === 'GET' && path === '/api/v1/universities') return UNIVERSITIES;
+
+  // ─── календарь на главной (уточнение У32) ─────────────────────────────────
+  if (method === 'GET' && path === '/api/v1/calendar') {
+    // Период приходит запросом, но заглушке хватает отдать всё: тесты держат
+    // события в одном месяце, а фильтрация по датам — работа сервера.
+    return state.calendar;
+  }
+  if (method === 'POST' && path === '/api/v1/calendar/events') {
+    const payload = body as { title?: string; day?: string };
+    const event = {
+      day: payload.day ?? '',
+      title: payload.title ?? '',
+      note: 'ваше событие · напомню за сутки',
+      kind: 'personal',
+      event_id: state.nextCalendarId++,
+    };
+    state.calendar.push(event);
+    return event;
+  }
+  const calendarEvent = /^\/api\/v1\/calendar\/events\/(\d+)$/.exec(path);
+  if (method === 'DELETE' && calendarEvent) {
+    const id = Number(calendarEvent[1]);
+    state.calendar = state.calendar.filter((event) => event.event_id !== id);
+    return NO_CONTENT;
+  }
 
   if (path.startsWith('/api/v1/schedule')) {
     // Гейт ТЗ 4.2 отвечает 403 на весь раздел, а не только прячет пункт меню.
@@ -985,6 +1015,14 @@ export interface StubOptions {
   readonly careerTestApplied?: boolean;
   /** Программы подбора: тесты пагинации подставляют свой, длинный список. */
   readonly programs?: typeof PROGRAMS;
+  /** Что уже лежит в календаре на главной (уточнение У32). */
+  readonly calendarEvents?: {
+    day: string;
+    title: string;
+    note: string;
+    kind: string;
+    event_id: number | null;
+  }[];
 }
 
 export async function installApiStub(page: Page, options: StubOptions = {}): Promise<void> {
@@ -1006,6 +1044,8 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
     digestHour: 8,
     mutedKinds: new Set<string>(),
     careerTestApplied: options.careerTestApplied ?? false,
+    calendar: (options.calendarEvents ?? []).map((event) => ({ ...event })),
+    nextCalendarId: 900,
     programs: options.programs ?? PROGRAMS,
   };
 
@@ -1028,6 +1068,10 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
         body: JSON.stringify({ detail: 'нужен статус «Студент» и заполненный вуз' }),
       });
+      return;
+    }
+    if (body === NO_CONTENT) {
+      await route.fulfill({ status: 204, headers: CORS_HEADERS });
       return;
     }
     if (body === undefined) {

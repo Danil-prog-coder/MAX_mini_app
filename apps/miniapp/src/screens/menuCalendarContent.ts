@@ -1,121 +1,129 @@
 /**
- * Содержимое календаря на главной — перенесено дословно из макета
- * (`docs/design/source/app.jsx`: `MONTHS`, `WD`, `EV_ABIT`, `EV_STUD`).
+ * Разметка календаря на главной: месяцы, дни недели, границы периода.
  *
- * Хендофф прямо относит события календаря к тому, что переносится дословно, а
- * уточнение У10 относит сам календарь к продукту, а не к украшению прототипа.
+ * Здесь только чистые функции над датами — ни React, ни запросов. Ошибка в
+ * этой арифметике не видна глазом: сетка просто встаёт на день левее, и
+ * события оказываются не в тех клетках, поэтому она закрыта тестами.
  *
- * Данные пока статические, и это временно: события абитуриента живут в трекере
- * и приёмной кампании, события студента — в расписании и дедлайнах (блок 4).
- * Подключение к этим доменам — отдельный шаг, он записан в `PLAN.md`. Пока его
- * нет, «сегодня» тоже фиксировано макетом (13 июля 2026), иначе сетка поедет
- * относительно событий и экран потеряет смысл.
+ * Даты настоящие. Раньше календарь показывал три месяца из макета и считал
+ * «сегодня» 13 июля 2026 — это имело смысл, пока события были выдуманными.
+ * Теперь события приходят с сервера (уточнение У32): свои, дедлайны приёмной
+ * кампании и пары, — и календарь обязан жить в настоящем времени.
+ *
+ * Всё считается в местном времени браузера. Часовой пояс продукта один
+ * (`SCHEDULE_TIMEZONE` на бэкенде), и открытый вопрос про пояса вузов записан
+ * в PLAN.md; на границе суток календарь может разойтись с сервером на день —
+ * это известная цена, а не недосмотр.
  */
 
-export interface CalendarMonth {
-  /** Название месяца капсом — как в шапке макета. */
-  readonly name: string;
-  /** Родительный падеж: «13 ИЮЛЯ» в заголовке шторки. */
-  readonly genitive: string;
-  readonly year: number;
-  readonly days: number;
-  /** День недели первого числа: 1 — понедельник, 7 — воскресенье. */
-  readonly first: number;
-}
-
-export interface CalendarEvent {
-  /** Заголовок события. */
-  readonly title: string;
-  /** Подпись под заголовком. */
-  readonly note: string;
-}
-
-export const MONTHS = [
-  { name: 'ИЮНЬ', genitive: 'ИЮНЯ', year: 2026, days: 30, first: 1 },
-  { name: 'ИЮЛЬ', genitive: 'ИЮЛЯ', year: 2026, days: 31, first: 3 },
-  { name: 'АВГУСТ', genitive: 'АВГУСТА', year: 2026, days: 31, first: 6 },
-] as const satisfies readonly CalendarMonth[];
-
+/** Дни недели с понедельника: сетка начинается с него, как в макете. */
 export const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'] as const;
 
-/** Индекс месяца, который открыт при входе, и число, считающееся сегодняшним. */
-export const CURRENT_MONTH_INDEX = 1;
-export const TODAY = 13;
+const MONTH_NAMES = [
+  'ЯНВАРЬ',
+  'ФЕВРАЛЬ',
+  'МАРТ',
+  'АПРЕЛЬ',
+  'МАЙ',
+  'ИЮНЬ',
+  'ИЮЛЬ',
+  'АВГУСТ',
+  'СЕНТЯБРЬ',
+  'ОКТЯБРЬ',
+  'НОЯБРЬ',
+  'ДЕКАБРЬ',
+] as const;
+
+/** Родительный падеж для заголовка шторки: «25 АВГУСТА · ВТ». */
+const MONTH_GENITIVE = [
+  'ЯНВАРЯ',
+  'ФЕВРАЛЯ',
+  'МАРТА',
+  'АПРЕЛЯ',
+  'МАЯ',
+  'ИЮНЯ',
+  'ИЮЛЯ',
+  'АВГУСТА',
+  'СЕНТЯБРЯ',
+  'ОКТЯБРЯ',
+  'НОЯБРЯ',
+  'ДЕКАБРЯ',
+] as const;
+
+/** Месяц календаря: год и номер месяца от нуля, как в `Date`. */
+export interface CalendarMonth {
+  readonly year: number;
+  readonly month: number;
+}
+
+export function monthName(month: CalendarMonth): string {
+  return MONTH_NAMES[month.month] ?? '';
+}
+
+export function monthGenitive(month: CalendarMonth): string {
+  return MONTH_GENITIVE[month.month] ?? '';
+}
+
+/** Сколько дней в месяце. Нулевой день следующего месяца — последний этого. */
+export function daysInMonth(month: CalendarMonth): number {
+  return new Date(month.year, month.month + 1, 0).getDate();
+}
 
 /**
- * Месяц по индексу.
+ * Номер дня недели первого числа: 1 — понедельник, 7 — воскресенье.
  *
- * Обёртка нужна из-за `noUncheckedIndexedAccess`: обращение по переменной даёт
- * тип с `undefined`, и без неё каждая точка вызова обрастала бы проверкой.
- * Выход за границы невозможен — листание ограничено в компоненте, — поэтому
- * запасной вариант просто текущий месяц.
+ * `Date.getDay()` считает от воскресенья, и это самый частый источник сдвига
+ * сетки на день, поэтому пересчёт живёт в одном месте.
  */
-export function monthAt(index: number): CalendarMonth {
-  return MONTHS[index] ?? MONTHS[CURRENT_MONTH_INDEX];
+export function firstWeekdayOf(month: CalendarMonth): number {
+  const sundayBased = new Date(month.year, month.month, 1).getDay();
+  return sundayBased === 0 ? 7 : sundayBased;
 }
 
-type EventMap = Readonly<Record<string, readonly CalendarEvent[]>>;
+/** День недели числа — подпись рядом с крупной цифрой. */
+export function weekdayOf(month: CalendarMonth, day: number): string {
+  const sundayBased = new Date(month.year, month.month, day).getDay();
+  return WEEKDAYS[(sundayBased + 6) % 7] ?? WEEKDAYS[0];
+}
 
-/** События абитуриента: приёмная кампания и конкурсные списки. */
-const APPLICANT_EVENTS: EventMap = {
-  '0-28': [{ title: 'Старт приёма документов', note: 'все отслеживаемые вузы' }],
-  '1-3': [{ title: 'Документы поданы', note: 'Северный политехнический · комплект принят' }],
-  '1-7': [{ title: 'Баллы ЕГЭ загружены', note: 'сумма 248 · 4 предмета' }],
-  '1-13': [
-    {
-      title: 'Приём документов идёт',
-      note: 'Северный политехнический · осталось 12 дней',
-    },
-    { title: 'Вы поднялись на 64 место', note: 'вчера были 116-м · проходной 78' },
-  ],
-  '1-15': [{ title: 'Обновление конкурсных списков', note: 'Северный политехнический · 09:00' }],
-  '1-18': [{ title: 'День открытых дверей онлайн', note: 'Приморский федеральный · 17:00' }],
-  '1-20': [{ title: 'Последний день приёма', note: 'Городской университет экономики' }],
-  '1-25': [
-    { title: 'Приём документов закрывается', note: 'Северный политехнический и ещё 2 вуза' },
-  ],
-  '1-29': [{ title: 'Приказы о зачислении', note: 'публикация на сайтах вузов' }],
-  '2-1': [{ title: 'Заселение в общежитие', note: 'по спискам зачисленных' }],
-};
+/** Месяц, в котором лежит эта дата. */
+export function monthOf(date: Date): CalendarMonth {
+  return { year: date.getFullYear(), month: date.getMonth() };
+}
 
-/** События студента: пары и дедлайны. */
-const STUDENT_EVENTS: EventMap = {
-  '1-9': [{ title: '4 пары · с 09:00', note: 'обычная неделя' }],
-  '1-10': [{ title: '2 пары · с 12:20', note: 'короткий день' }],
-  '1-13': [
-    {
-      title: '4 пары · с 09:00',
-      note: 'Базы данных, дискретная математика, интерфейсы, английский',
-    },
-    { title: 'Курсовая по базам данных', note: 'через 3 дня · напомню за сутки' },
-  ],
-  '1-14': [{ title: '3 пары · с 10:40', note: 'ауд. 118, 405, 207' }],
-  '1-16': [{ title: 'Курсовая по базам данных', note: 'сдать до 18:00 · ауд. 312' }],
-  '1-22': [{ title: 'Отчёт по практике', note: 'личный дедлайн' }],
-  '2-1': [{ title: 'Начало семестра', note: 'расписание обновится автоматически' }],
-};
+/** Соседний месяц: `step` в месяцах, со сменой года на границах. */
+export function shiftMonth(month: CalendarMonth, step: number): CalendarMonth {
+  const shifted = new Date(month.year, month.month + step, 1);
+  return monthOf(shifted);
+}
 
 /**
- * События дня. Набор выбирается статусом: у студента в календаре пары и
- * дедлайны, у остальных — приёмная кампания (макет, `events()`).
+ * Дата в виде `YYYY-MM-DD` — в этом виде её ждёт и отдаёт API.
+ *
+ * Собирается вручную, а не через `toISOString()`: тот переводит в UTC, и для
+ * пользователя восточнее Гринвича вечернее событие уезжает на день назад.
  */
-export function eventsOf(
-  isStudent: boolean,
-  monthIndex: number,
-  day: number,
-): readonly CalendarEvent[] {
-  const source = isStudent ? STUDENT_EVENTS : APPLICANT_EVENTS;
-  return source[`${monthIndex}-${day}`] ?? [];
+export function isoDate(year: number, month: number, day: number): string {
+  return `${String(year)}-${pad(month + 1)}-${pad(day)}`;
 }
 
-/** День недели числа: колонка в сетке считается от первого числа месяца. */
-export function weekdayOf(month: CalendarMonth, day: number): string {
-  return WEEKDAYS[(month.first - 1 + day - 1) % 7] ?? WEEKDAYS[0];
+export function isoOf(date: Date): string {
+  return isoDate(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-/** Пустой день: текст зависит от статуса — у студента и абитуриента разные дела. */
-export function emptyDayNote(isStudent: boolean): string {
-  return isStudent
-    ? 'Ни пар, ни дедлайнов. Можно добавить свой дедлайн в разделе «Расписание».'
-    : 'Ни одного события приёмной кампании в отслеживаемых вузах.';
+/** Первое и последнее число месяца в формате API — границы запроса событий. */
+export function monthRange(month: CalendarMonth): { from: string; to: string } {
+  return {
+    from: isoDate(month.year, month.month, 1),
+    to: isoDate(month.year, month.month, daysInMonth(month)),
+  };
+}
+
+/** Один и тот же ли это месяц. */
+export function sameMonth(a: CalendarMonth, b: CalendarMonth): boolean {
+  return a.year === b.year && a.month === b.month;
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
 }
