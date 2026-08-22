@@ -1,0 +1,236 @@
+# Выкладка на стенд после зелёного CI.
+#
+# Запускается не по пушу, а по **завершению** workflow «CI»: так деплой
+# физически не может обогнать проверки. Условий три, и все обязательны —
+# прогон завершился успехом, это ветка main, и сервер вообще настроен.
+#
+# Пока сервера нет, workflow безвреден: задание `guard` не находит секретов и
+# честно пишет в отчёт, чего не хватает. Ничего не собирается и никуда не
+# выкладывается. Чтобы включить деплой, достаточно добавить секреты — правки
+# кода не потребуется.
+#
+# Что нужно на сервере до первого деплоя:
+#
+#   1. установлен Docker с плагином compose;
+#   2. каталог `/opt/navigator` принадлежит пользователю деплоя;
+#   3. в нём лежит `.env` с настоящими паролями — его деплой **не** трогает,
+#      секреты стенда не должны жить в репозитории и в логах Actions;
+#   4. домен указывает на сервер, порты 80 и 443 открыты — иначе Caddy не
+#      выпустит сертификат.
+
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+
+concurrency:
+  # Две одновременные выкладки на один сервер — гарантированная гонка.
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  DEPLOY_PATH: /opt/navigator
+
+jobs:
+  guard:
+    name: Проверить, есть ли куда выкладывать
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          missing=()
+          [ -n "$DEPLOY_HOST" ] || missing+=("DEPLOY_HOST")
+          [ -n "$DEPLOY_USER" ] || missing+=("DEPLOY_USER")
+          [ -n "$DEPLOY_SSH_KEY" ] || missing+=("DEPLOY_SSH_KEY")
+
+          if [ ${#missing[@]} -eq 0 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Сервер настроен, выкладываю." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Деплой пропущен"
+              echo
+              echo "Сервер ещё не настроен. Не хватает секретов: \`${missing[*]}\`."
+              echo
+              echo "Добавьте их в Settings → Secrets and variables → Actions,"
+              echo "и следующий зелёный CI на main выложится сам."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    name: Собрать и опубликовать образы
+    needs: guard
+    if: needs.guard.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Тот самый коммит, который прошёл CI, а не «последний в main»:
+          # иначе на сервер уехало бы непроверенное изменение, успевшее
+          # влиться между прогоном и выкладкой.
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Core API
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/core/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository }}/core:${{ github.event.workflow_run.head_sha }}
+            ${{ env.REGISTRY }}/${{ github.repository }}/core:latest
+          cache-from: type=gha,scope=core
+          cache-to: type=gha,scope=core,mode=max
+
+      - name: AI Gateway
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/ai-gateway/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository }}/ai-gateway:${{ github.event.workflow_run.head_sha }}
+            ${{ env.REGISTRY }}/${{ github.repository }}/ai-gateway:latest
+          cache-from: type=gha,scope=ai
+          cache-to: type=gha,scope=ai,mode=max
+
+      - name: Мини-приложение
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/miniapp/Dockerfile
+          target: production
+          push: true
+          # Пусто — «тот же адрес, что и фронт»: за Caddy API и статика живут
+          # на одном домене (решение Р67). У Vite нет рантайм-конфига, поэтому
+          # значение попадает в бандл здесь, на сборке.
+          build-args: |
+            VITE_API_BASE_URL=
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository }}/miniapp:${{ github.event.workflow_run.head_sha }}
+            ${{ env.REGISTRY }}/${{ github.repository }}/miniapp:latest
+          cache-from: type=gha,scope=miniapp
+          cache-to: type=gha,scope=miniapp,mode=max
+
+  release:
+    name: Выложить на сервер
+    needs: [guard, publish]
+    if: needs.guard.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Подготовить SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if [ -n "$DEPLOY_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            # Запасной путь. Он слабее: ключ сервера берётся из сети прямо
+            # сейчас, а не сверяется с известным заранее. Задайте
+            # DEPLOY_KNOWN_HOSTS (вывод `ssh-keyscan ваш-хост`), чтобы
+            # подмена сервера не осталась незамеченной.
+            echo "::warning::DEPLOY_KNOWN_HOSTS не задан — ключ сервера не сверяется"
+            ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Отправить конфигурацию стенда
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          # Только compose-файл и конфиг Caddy. `.env` с паролями лежит на
+          # сервере и деплоем не перезаписывается: секреты стенда не должны
+          # проходить через репозиторий и логи Actions.
+          ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" \
+            "mkdir -p ${{ env.DEPLOY_PATH }}/infra/caddy/conf.d"
+          scp -i ~/.ssh/id_deploy docker-compose.prod.yml \
+            "$DEPLOY_USER@$DEPLOY_HOST:${{ env.DEPLOY_PATH }}/docker-compose.prod.yml"
+          scp -i ~/.ssh/id_deploy infra/caddy/Caddyfile \
+            "$DEPLOY_USER@$DEPLOY_HOST:${{ env.DEPLOY_PATH }}/infra/caddy/Caddyfile"
+          scp -i ~/.ssh/id_deploy infra/caddy/conf.d/admin.caddy.example \
+            "$DEPLOY_USER@$DEPLOY_HOST:${{ env.DEPLOY_PATH }}/infra/caddy/conf.d/admin.caddy.example"
+
+      - name: Обновить сервисы
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" bash -euo pipefail <<REMOTE
+          cd ${{ env.DEPLOY_PATH }}
+
+          if [ ! -f .env ]; then
+            echo "на сервере нет ${{ env.DEPLOY_PATH }}/.env — создайте его по .env.example" >&2
+            exit 1
+          fi
+
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} \
+            -u ${{ github.actor }} --password-stdin
+
+          # Тег коммита, а не latest: на сервере всегда видно, что именно
+          # выложено, и откат — это запуск с прежним тегом.
+          export IMAGE_TAG=$IMAGE_TAG
+          export IMAGE_CORE=${{ env.REGISTRY }}/${{ github.repository }}/core
+          export IMAGE_AI=${{ env.REGISTRY }}/${{ github.repository }}/ai-gateway
+          export IMAGE_MINIAPP=${{ env.REGISTRY }}/${{ github.repository }}/miniapp
+
+          docker compose -f docker-compose.prod.yml pull
+          # Миграции и заливка справочников — разовые сервисы, они отработают
+          # до старта приложения: подниматься на несовпадающей схеме нельзя.
+          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          docker image prune -f
+          REMOTE
+
+      - name: Убедиться, что стенд отвечает
+        env:
+          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+        run: |
+          if [ -z "$DOMAIN" ]; then
+            echo "::warning::DEPLOY_DOMAIN не задан — проверить стенд снаружи нечем"
+            exit 0
+          fi
+          # Первый деплой ждёт выпуска сертификата, поэтому не одна попытка.
+          for attempt in $(seq 1 10); do
+            if curl -fsS --max-time 10 "https://$DOMAIN/health" > /dev/null; then
+              echo "стенд отвечает: https://$DOMAIN" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "попытка $attempt: стенд ещё не отвечает, жду"
+            sleep 15
+          done
+          echo "::error::после выкладки https://$DOMAIN/health не отвечает"
+          exit 1
