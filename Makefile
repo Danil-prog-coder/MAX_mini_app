@@ -33,7 +33,7 @@ install: ## Установить зависимости всех сервисо�
 up: env ## Поднять бэкенд локально (Postgres, Redis, Core API, Worker, Beat, AI Gateway)
 	docker compose up --build -d
 	@echo
-	@echo "  Core API         http://localhost:8000/docs"
+	@echo "  Core API         http://localhost:$${CORE_API_PORT:-8010}/docs"
 	@echo "  админка          http://localhost:8001"
 	@echo "  AI Gateway       только внутри docker-сети (тех. ТЗ 5)"
 	@echo

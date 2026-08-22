@@ -69,7 +69,7 @@ test('на главной есть календарь с сеткой текущ
 
   await expect(page.getByText(String(today.getFullYear()), { exact: true })).toBeVisible();
   await expect(
-    page.getByRole('button', { name: new RegExp(MONTHS_GENITIVE[today.getMonth()]) }),
+    page.getByRole('button', { name: new RegExp(MONTHS_GENITIVE[today.getMonth()] ?? '') }),
   ).toHaveCount(daysInMonth);
   await expect(page.getByText(/Нажмите на день/)).toBeVisible();
 });

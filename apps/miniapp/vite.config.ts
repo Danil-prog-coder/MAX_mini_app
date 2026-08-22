@@ -19,6 +19,22 @@ export default defineConfig({
     host: true,
     port: MINIAPP_PORT,
     strictPort: true,
+    // Прокси на Core API. Нужен, чтобы браузеру хватало одного порта — 5173.
+    //
+    // Без него фронт в контейнере ходил в API по `localhost:8000`, то есть
+    // порт Core API обязан был быть свободен и опубликован на машине
+    // разработчика. Занятый порт 8000 (а он занят у многих) означал, что
+    // контейнер core-api вообще не стартует, а приложение показывает
+    // «не удалось загрузить» без единого намёка на причину.
+    //
+    // Внутри compose цель — `http://core-api:8000` по имени сервиса, при
+    // разработке на хосте — локальный uvicorn.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
   },
   preview: { host: true, port: MINIAPP_PORT, strictPort: true },
   build: {
