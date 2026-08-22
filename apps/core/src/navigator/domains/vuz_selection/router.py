@@ -53,7 +53,7 @@ async def save_scores(user: CurrentUser, payload: ExamScoresIn) -> ExamScoresOut
 
 @router.get("/matches", response_model=MatchesOut, summary="Вузы с метками шанса")
 async def read_matches(user: CurrentUser) -> MatchesOut:
-    """Список направлений в вузах (ТЗ 2.5, уточнение У28).
+    """Список направлений в вузах (ТЗ 2.5, уточнение У30).
 
     Расчёт шанса детерминированный и живёт в сервисном слое, а не в LLM: это
     арифметика на исторических проходных баллах (тех. ТЗ 3.3). Профориентационный

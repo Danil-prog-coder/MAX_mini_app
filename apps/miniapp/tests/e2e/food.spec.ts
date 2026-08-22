@@ -54,7 +54,7 @@ test('каждая карточка ведёт на место в картах, 
     nodes.map((node) => (node as HTMLAnchorElement).href),
   );
   for (const href of hrefs) {
-    // Уточнение У27: карта открывается на точке, а не на поиске по названию.
+    // Уточнение У29: карта открывается на точке, а не на поиске по названию.
     expect(href).toContain('ll=');
     expect(href).toContain('pt=');
     expect(href).not.toContain('text=');

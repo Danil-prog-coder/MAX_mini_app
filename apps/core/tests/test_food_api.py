@@ -106,7 +106,7 @@ class TestNearby:
     async def test_every_spot_links_to_a_place_not_a_search(
         self, api_client: httpx.AsyncClient, integration_settings: Settings
     ) -> None:
-        """ТЗ 7.6 и уточнение У27: карта открывается на выбранной точке.
+        """ТЗ 7.6 и уточнение У29: карта открывается на выбранной точке.
 
         Три проверки, и каждая из-за настоящей жалобы: без `ll` карта
         открывается там, где пользователь был в прошлый раз; с `text` она

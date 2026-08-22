@@ -356,7 +356,7 @@ class TestProgramsSync:
 
 
 class TestCareerTestRanking:
-    """Порядок выдачи с учётом профориентационного теста (уточнение У28)."""
+    """Порядок выдачи с учётом профориентационного теста (уточнение У30)."""
 
     async def pass_test(self, client: httpx.AsyncClient, option_index: int) -> list[str]:
         """Проходит тест, выбирая всюду вариант с этим номером. Возвращает топ-3."""
