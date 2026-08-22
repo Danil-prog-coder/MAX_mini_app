@@ -30,12 +30,20 @@ install: ## Установить зависимости всех сервисо�
 # ─── запуск ──────────────────────────────────────────────────────────────────
 
 .PHONY: up
-up: env ## Поднять всё локально (Postgres, Redis, Core API, Worker, Beat, AI Gateway, фронт)
+up: env ## Поднять бэкенд локально (Postgres, Redis, Core API, Worker, Beat, AI Gateway)
 	docker compose up --build -d
 	@echo
-	@echo "  мини-приложение  http://localhost:5173"
 	@echo "  Core API         http://localhost:8000/docs"
+	@echo "  админка          http://localhost:8001"
 	@echo "  AI Gateway       только внутри docker-сети (тех. ТЗ 5)"
+	@echo
+	@echo "  фронтенд поднимается отдельно: make dev-front (или make up-all)"
+
+.PHONY: up-all
+up-all: env ## То же плюс фронтенд в контейнере (профиль frontend)
+	docker compose --profile frontend up --build -d
+	@echo
+	@echo "  мини-приложение  http://localhost:5173"
 
 .PHONY: down
 down: ## Остановить всё, данные сохранить

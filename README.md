@@ -18,20 +18,27 @@
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build        # бэкенд
+pnpm install && pnpm --filter miniapp dev   # фронтенд на хосте
 ```
 
 Или через make:
 
 ```bash
-make up
+make up          # бэкенд в docker
+make dev-front   # мини-приложение на http://localhost:5173
 ```
+
+**Фронтенд по умолчанию в docker не поднимается.** Он объявлен в профиле
+`frontend`: dev-сервер Vite в контейнере даёт медленный HMR через смонтированный
+том и пересборку образа на каждое изменение зависимостей. Кому удобнее прежний
+вариант — `make up-all` или `docker compose --profile frontend up`.
 
 Что поднимется:
 
 | Сервис | Адрес | Что это |
 |---|---|---|
-| `miniapp` | http://localhost:5173 | мини-приложение, dev-сервер Vite |
+| `miniapp` | http://localhost:5173 | мини-приложение, dev-сервер Vite (только с профилем `frontend`) |
 | `core-api` | http://localhost:8000/docs | Core API: модульный монолит, FastAPI + Tortoise |
 | `admin` | http://localhost:8001 | админка: очереди обращений и спорных вопросов (У26) |
 | `worker` | — | Celery-воркер фоновых задач |

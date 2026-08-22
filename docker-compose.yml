@@ -214,6 +214,15 @@ services:
     networks: [navigator]
 
   miniapp:
+    # Профиль, а не обычный сервис: по умолчанию фронтенд в docker не
+    # поднимается. Причина в том, что dev-сервер Vite внутри контейнера
+    # выигрывает только у того, у кого нет node — а платит за это все:
+    # пересборка образа на каждое изменение зависимостей и HMR через
+    # смонтированный том, который на Windows и macOS заметно медленнее.
+    # Бэкенд из docker плюс `pnpm --filter miniapp dev` на хосте — рабочий
+    # режим по умолчанию; `docker compose --profile frontend up` возвращает
+    # прежнее поведение.
+    profiles: [frontend]
     build:
       context: .
       dockerfile: apps/miniapp/Dockerfile
