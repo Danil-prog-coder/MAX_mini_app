@@ -36,6 +36,37 @@ export const UNIVERSITIES = [
     admission_deadline: '2026-07-25',
     demo_fields: ['budget_places', 'tuition_price', 'has_dormitory', 'admission_deadline'],
   },
+  // Ещё два вуза нужны поиску (уточнение У31): на справочнике из одной строки
+  // «список сузился» проверить нечем. Города разные намеренно — поиск обязан
+  // находить и по городу.
+  {
+    id: 2,
+    name: 'Дальневосточный федеральный университет',
+    short_name: 'ДВФУ',
+    city: 'Владивосток',
+    address: 'Аякс, 10',
+    latitude: 43.02,
+    longitude: 131.89,
+    budget_places: 90,
+    tuition_price: 260000,
+    has_dormitory: true,
+    admission_deadline: '2026-07-25',
+    demo_fields: ['budget_places', 'tuition_price', 'has_dormitory', 'admission_deadline'],
+  },
+  {
+    id: 3,
+    name: 'Санкт-Петербургский политехнический университет',
+    short_name: 'СПбПУ',
+    city: 'Санкт-Петербург',
+    address: 'Политехническая, 29',
+    latitude: 60.0,
+    longitude: 30.37,
+    budget_places: 110,
+    tuition_price: 310000,
+    has_dormitory: true,
+    admission_deadline: '2026-07-25',
+    demo_fields: ['budget_places', 'tuition_price', 'has_dormitory', 'admission_deadline'],
+  },
 ];
 
 /**

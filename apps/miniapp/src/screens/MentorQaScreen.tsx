@@ -16,7 +16,7 @@ import { useAsk, useTopics, type Asked, type QuestionTopic } from '@/shared/api/
 import { useProfile, useUniversities } from '@/shared/api/profile';
 import { Button } from '@/shared/ui/Button';
 import { ScreenHeader } from '@/shared/ui/ScreenHeader';
-import { Sheet } from '@/shared/ui/Sheet';
+import { UniversityPicker } from '@/shared/ui/UniversityPicker';
 
 /** Минимум из схемы сервера: короче — не вопрос, а обрывок. */
 const MIN_TEXT_LENGTH = 10;
@@ -144,31 +144,18 @@ export function MentorQaScreen() {
         </Button>
       </div>
 
-      <Sheet
+      <UniversityPicker
         open={picking}
-        onOpenChange={(next) => {
-          if (!next) setPicking(false);
+        onClose={() => {
+          setPicking(false);
         }}
         title="Лента какого вуза"
-      >
-        {universities.isPending && <SheetHint>Загружаю справочник…</SheetHint>}
-        {universities.data?.map((university) => (
-          <Button
-            key={university.id}
-            variant={university.id === chosenId ? 'dark' : 'outline'}
-            className="flex-none justify-start px-5 py-4 text-left text-[15px]"
-            onClick={() => {
-              setUniversityId(university.id);
-              setPicking(false);
-            }}
-          >
-            <span className="min-w-0 flex-1">
-              {university.short_name}
-              <span className="block text-[12px] text-neutral-600">{university.city}</span>
-            </span>
-          </Button>
-        ))}
-      </Sheet>
+        selected={chosenId}
+        onSelect={(university) => {
+          setUniversityId(university.id);
+          setPicking(false);
+        }}
+      />
     </>
   );
 }
@@ -220,8 +207,4 @@ function AskedNotice({ asked }: { readonly asked: Asked }) {
 
 function Hint({ children }: { readonly children: React.ReactNode }) {
   return <p className="mt-4 text-[14px] leading-[1.5] text-neutral-700">{children}</p>;
-}
-
-function SheetHint({ children }: { readonly children: React.ReactNode }) {
-  return <p className="flex-none text-[13px] leading-[1.45] text-neutral-700">{children}</p>;
 }

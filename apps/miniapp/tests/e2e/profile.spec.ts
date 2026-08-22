@@ -91,3 +91,46 @@ test('имя запрашивается, если платформа его не
 
   await expect(page.getByRole('heading', { name: 'Артём' })).toBeVisible();
 });
+
+/**
+ * Умный поиск вуза (уточнение У31). Одна шторка на профиль и на вопрос
+ * старшекурснику, поэтому проверяются обе точки входа.
+ */
+test('шторка вуза показывает справочник сразу и сужает его при вводе', async ({ page }) => {
+  await installApiStub(page);
+  await page.goto('/profile');
+
+  await page.getByRole('button', { name: /Изменить|Указать/ }).first().click();
+
+  // Список виден сразу, до первого символа.
+  const options = page.getByRole('dialog').getByRole('button', { name: /У$|У\s/ });
+  await expect(options).toHaveCount(3);
+
+  await page.getByRole('searchbox', { name: 'Поиск вуза' }).fill('влад');
+
+  // Поиск идёт и по городу: «влад» — это Владивосток, то есть ДВФУ.
+  await expect(options).toHaveCount(1);
+  await expect(page.getByRole('dialog').getByRole('button', { name: /ДВФУ/ })).toBeVisible();
+});
+
+test('поиск не находит — экран объясняет это, а не показывает пустоту', async ({ page }) => {
+  await installApiStub(page);
+  await page.goto('/profile');
+
+  await page.getByRole('button', { name: /Изменить|Указать/ }).first().click();
+  await page.getByRole('searchbox', { name: 'Поиск вуза' }).fill('щщщщщ');
+
+  await expect(page.getByText(/ничего не нашлось/)).toBeVisible();
+});
+
+test('выбранный в поиске вуз попадает в профиль', async ({ page }) => {
+  await installApiStub(page);
+  await page.goto('/profile');
+
+  await page.getByRole('button', { name: /Изменить|Указать/ }).first().click();
+  await page.getByRole('searchbox', { name: 'Поиск вуза' }).fill('мгу');
+  await page.getByRole('dialog').getByRole('button', { name: /МГУ/ }).click();
+
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByText('МГУ').first()).toBeVisible();
+});
