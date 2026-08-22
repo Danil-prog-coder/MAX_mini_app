@@ -4,10 +4,20 @@
 # физически не может обогнать проверки. Условий три, и все обязательны —
 # прогон завершился успехом, это ветка main, и сервер вообще настроен.
 #
-# Пока сервера нет, workflow безвреден: задание `guard` не находит секретов и
-# честно пишет в отчёт, чего не хватает. Ничего не собирается и никуда не
-# выкладывается. Чтобы включить деплой, достаточно добавить секреты — правки
-# кода не потребуется.
+# Включается наличием секретов репозитория, а не правкой кода: задание `guard`
+# проверяет их и без них честно пишет в отчёт, чего не хватает, ничего не
+# собирая и никуда не выкладывая. Секреты (Settings → Secrets and variables →
+# Actions):
+#
+#   MAX_MINI_APP_DEPLOY_HOST         адрес сервера
+#   MAX_MINI_APP_DEPLOY_USER         пользователь для SSH
+#   MAX_MINI_APP_DEPLOY_SSH_KEY      приватный ключ этого пользователя
+#   MAX_MINI_APP_DEPLOY_KNOWN_HOSTS  вывод `ssh-keyscan ваш-хост`
+#   MAX_MINI_APP_DEPLOY_DOMAIN       домен для проверки стенда после выкладки
+#
+# Первые три обязательны, без них деплой останавливается. Остальные два не
+# блокируют выкладку, но без них ключ сервера не сверяется, а стенд после
+# выкладки не проверяется — задавать стоит все пять.
 #
 # Что нужно на сервере до первого деплоя:
 #
@@ -43,17 +53,27 @@ jobs:
       github.event.workflow_run.head_branch == 'main'
     outputs:
       enabled: ${{ steps.check.outputs.enabled }}
+      images: ${{ steps.images.outputs.prefix }}
     steps:
+      - id: images
+        # GHCR не принимает заглавные буквы в имени образа, а `github.repository`
+        # здесь — `Danil-prog-coder/MAX_mini_app`. Приводим к нижнему регистру
+        # один раз и отдаём обоим заданиям: иначе сервер пошёл бы за одним
+        # именем, а собрано было бы под другим.
+        run: |
+          prefix="$REGISTRY/$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+
       - id: check
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.MAX_MINI_APP_DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.MAX_MINI_APP_DEPLOY_SSH_KEY }}
         run: |
           missing=()
-          [ -n "$DEPLOY_HOST" ] || missing+=("DEPLOY_HOST")
-          [ -n "$DEPLOY_USER" ] || missing+=("DEPLOY_USER")
-          [ -n "$DEPLOY_SSH_KEY" ] || missing+=("DEPLOY_SSH_KEY")
+          [ -n "$DEPLOY_HOST" ] || missing+=("MAX_MINI_APP_DEPLOY_HOST")
+          [ -n "$DEPLOY_USER" ] || missing+=("MAX_MINI_APP_DEPLOY_USER")
+          [ -n "$DEPLOY_SSH_KEY" ] || missing+=("MAX_MINI_APP_DEPLOY_SSH_KEY")
 
           if [ ${#missing[@]} -eq 0 ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -101,8 +121,8 @@ jobs:
           file: apps/core/Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}/core:${{ github.event.workflow_run.head_sha }}
-            ${{ env.REGISTRY }}/${{ github.repository }}/core:latest
+            ${{ needs.guard.outputs.images }}/core:${{ github.event.workflow_run.head_sha }}
+            ${{ needs.guard.outputs.images }}/core:latest
           cache-from: type=gha,scope=core
           cache-to: type=gha,scope=core,mode=max
 
@@ -113,8 +133,8 @@ jobs:
           file: apps/ai-gateway/Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}/ai-gateway:${{ github.event.workflow_run.head_sha }}
-            ${{ env.REGISTRY }}/${{ github.repository }}/ai-gateway:latest
+            ${{ needs.guard.outputs.images }}/ai-gateway:${{ github.event.workflow_run.head_sha }}
+            ${{ needs.guard.outputs.images }}/ai-gateway:latest
           cache-from: type=gha,scope=ai
           cache-to: type=gha,scope=ai,mode=max
 
@@ -131,8 +151,8 @@ jobs:
           build-args: |
             VITE_API_BASE_URL=
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}/miniapp:${{ github.event.workflow_run.head_sha }}
-            ${{ env.REGISTRY }}/${{ github.repository }}/miniapp:latest
+            ${{ needs.guard.outputs.images }}/miniapp:${{ github.event.workflow_run.head_sha }}
+            ${{ needs.guard.outputs.images }}/miniapp:latest
           cache-from: type=gha,scope=miniapp
           cache-to: type=gha,scope=miniapp,mode=max
 
@@ -148,9 +168,9 @@ jobs:
 
       - name: Подготовить SSH
         env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.MAX_MINI_APP_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.MAX_MINI_APP_DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
@@ -160,17 +180,17 @@ jobs:
           else
             # Запасной путь. Он слабее: ключ сервера берётся из сети прямо
             # сейчас, а не сверяется с известным заранее. Задайте
-            # DEPLOY_KNOWN_HOSTS (вывод `ssh-keyscan ваш-хост`), чтобы
-            # подмена сервера не осталась незамеченной.
-            echo "::warning::DEPLOY_KNOWN_HOSTS не задан — ключ сервера не сверяется"
+            # MAX_MINI_APP_DEPLOY_KNOWN_HOSTS (вывод `ssh-keyscan ваш-хост`),
+            # чтобы подмена сервера не осталась незамеченной.
+            echo "::warning::MAX_MINI_APP_DEPLOY_KNOWN_HOSTS не задан — ключ сервера не сверяется"
             ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           fi
           chmod 600 ~/.ssh/known_hosts
 
       - name: Отправить конфигурацию стенда
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.MAX_MINI_APP_DEPLOY_USER }}
         run: |
           # Только compose-файл и конфиг Caddy. `.env` с паролями лежит на
           # сервере и деплоем не перезаписывается: секреты стенда не должны
@@ -186,8 +206,8 @@ jobs:
 
       - name: Обновить сервисы
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.MAX_MINI_APP_DEPLOY_USER }}
           IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
         run: |
           ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" bash -euo pipefail <<REMOTE
@@ -198,15 +218,19 @@ jobs:
             exit 1
           fi
 
+          # Токен живёт только пока идёт этот прогон. Для самой выкладки этого
+          # достаточно, но сервер после перезагрузки заново вытянуть приватные
+          # образы уже не сможет: либо пакеты в GHCR делаются публичными, либо
+          # на сервере заводится отдельный долгоживущий логин.
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} \
             -u ${{ github.actor }} --password-stdin
 
           # Тег коммита, а не latest: на сервере всегда видно, что именно
           # выложено, и откат — это запуск с прежним тегом.
           export IMAGE_TAG=$IMAGE_TAG
-          export IMAGE_CORE=${{ env.REGISTRY }}/${{ github.repository }}/core
-          export IMAGE_AI=${{ env.REGISTRY }}/${{ github.repository }}/ai-gateway
-          export IMAGE_MINIAPP=${{ env.REGISTRY }}/${{ github.repository }}/miniapp
+          export IMAGE_CORE=${{ needs.guard.outputs.images }}/core
+          export IMAGE_AI=${{ needs.guard.outputs.images }}/ai-gateway
+          export IMAGE_MINIAPP=${{ needs.guard.outputs.images }}/miniapp
 
           docker compose -f docker-compose.prod.yml pull
           # Миграции и заливка справочников — разовые сервисы, они отработают
@@ -217,10 +241,10 @@ jobs:
 
       - name: Убедиться, что стенд отвечает
         env:
-          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+          DOMAIN: ${{ secrets.MAX_MINI_APP_DEPLOY_DOMAIN }}
         run: |
           if [ -z "$DOMAIN" ]; then
-            echo "::warning::DEPLOY_DOMAIN не задан — проверить стенд снаружи нечем"
+            echo "::warning::MAX_MINI_APP_DEPLOY_DOMAIN не задан — проверить стенд снаружи нечем"
             exit 0
           fi
           # Первый деплой ждёт выпуска сертификата, поэтому не одна попытка.
