@@ -8,11 +8,16 @@
  *
  * Какие разделы открыты, решает сервер и отдаёт в поле `access` профиля
  * (решение Р19): меню его читает, но не выводит само.
+ *
+ * Над списком разделов — календарь-решётка (`MenuCalendar`): по хендоффу это
+ * главный элемент экрана, а не украшение (уточнение У10).
  */
 import { Link } from 'react-router-dom';
 
 import { STATUS_LABELS, useProfile, type Profile } from '@/shared/api/profile';
 import { ChevronRightIcon, UserIcon } from '@/shared/ui/icons';
+
+import { MenuCalendar } from './MenuCalendar';
 
 interface MenuItem {
   readonly number: string;
@@ -50,6 +55,8 @@ export function MenuScreen() {
         </div>
         {profile.data !== undefined && <StatusPill profile={profile.data} />}
       </div>
+
+      <MenuCalendar />
 
       <div className="mt-[26px] text-[11px] font-bold tracking-[0.2em] text-neutral-600">
         РАЗДЕЛЫ
