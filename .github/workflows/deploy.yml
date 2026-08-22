@@ -161,6 +161,10 @@ jobs:
     needs: [guard, publish]
     if: needs.guard.outputs.enabled == 'true'
     runs-on: ubuntu-latest
+    # Выкладка укладывается в пару минут. Лимит нужен не для неё, а для случая,
+    # когда ssh повис на неотвечающем сервере: без него задание досидит до
+    # шестичасового лимита GitHub, занимая очередь и ничего не сообщая.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
         with:
@@ -171,6 +175,7 @@ jobs:
           DEPLOY_SSH_KEY: ${{ secrets.MAX_MINI_APP_DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.MAX_MINI_APP_DEPLOY_KNOWN_HOSTS }}
           DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.MAX_MINI_APP_DEPLOY_USER }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
@@ -187,30 +192,66 @@ jobs:
           fi
           chmod 600 ~/.ssh/known_hosts
 
+          # Параметры соединения задаются здесь, а не флагами у каждой команды:
+          # так они гарантированно одинаковы у ssh и scp и не могут разъехаться.
+          #
+          # BatchMode — главное из них. Без него ssh, не сумев войти по ключу,
+          # переходит к запросу пароля и ждёт ввода, которого в Actions никогда
+          # не будет: задание висит до лимита вместо того, чтобы упасть с
+          # понятной ошибкой. ConnectTimeout и ServerAlive закрывают то же самое
+          # со стороны сети — неотвечающий сервер должен обнаружиться за секунды.
+          cat > ~/.ssh/config <<CONFIG
+          Host deploy-target
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/id_deploy
+            IdentitiesOnly yes
+            BatchMode yes
+            ConnectTimeout 15
+            ServerAliveInterval 15
+            ServerAliveCountMax 4
+          CONFIG
+          chmod 600 ~/.ssh/config
+
+      - name: Проверить связь с сервером
+        # Отдельным шагом и с -v: если выкладка не состоится, причина должна
+        # быть видна в логе сразу («ключ не принят», «хост не отвечает»,
+        # «ключ сервера не совпал»), а не выясняться по косвенным признакам.
+        #
+        # Обёртка timeout нужна отдельно от ConnectTimeout, и это не
+        # перестраховка. ConnectTimeout ограничивает только установку TCP, а
+        # ServerAlive работает уже после аутентификации. Между ними есть щель:
+        # соединение установилось, но обмен ключами не идёт — так бывает, когда
+        # фильтр или чёрная дыра MTU пропускает мелкие пакеты и теряет крупные.
+        # В этой щели ssh висит до таймаута TCP, а это около четверти часа.
+        run: |
+          # Код возврата снимается через `|| status=$?`, а не после `if`:
+          # конструкция `if` возвращает собственный результат и затирает $?.
+          status=0
+          timeout 60 ssh -v deploy-target 'echo "связь есть: $(hostname), docker $(docker --version)"' || status=$?
+          if [ "$status" -eq 124 ]; then
+            echo "::error::SSH не ответил за 60 секунд. Соединение до порта 22 устанавливается, но обмен данными не идёт — смотрите фильтрацию трафика на стороне хостинга и MTU."
+          fi
+          exit "$status"
+
       - name: Отправить конфигурацию стенда
-        env:
-          DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.MAX_MINI_APP_DEPLOY_USER }}
         run: |
           # Только compose-файл и конфиг Caddy. `.env` с паролями лежит на
           # сервере и деплоем не перезаписывается: секреты стенда не должны
           # проходить через репозиторий и логи Actions.
-          ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" \
-            "mkdir -p ${{ env.DEPLOY_PATH }}/infra/caddy/conf.d"
-          scp -i ~/.ssh/id_deploy docker-compose.prod.yml \
-            "$DEPLOY_USER@$DEPLOY_HOST:${{ env.DEPLOY_PATH }}/docker-compose.prod.yml"
-          scp -i ~/.ssh/id_deploy infra/caddy/Caddyfile \
-            "$DEPLOY_USER@$DEPLOY_HOST:${{ env.DEPLOY_PATH }}/infra/caddy/Caddyfile"
-          scp -i ~/.ssh/id_deploy infra/caddy/conf.d/admin.caddy.example \
-            "$DEPLOY_USER@$DEPLOY_HOST:${{ env.DEPLOY_PATH }}/infra/caddy/conf.d/admin.caddy.example"
+          ssh deploy-target "mkdir -p ${{ env.DEPLOY_PATH }}/infra/caddy/conf.d"
+          scp docker-compose.prod.yml \
+            "deploy-target:${{ env.DEPLOY_PATH }}/docker-compose.prod.yml"
+          scp infra/caddy/Caddyfile \
+            "deploy-target:${{ env.DEPLOY_PATH }}/infra/caddy/Caddyfile"
+          scp infra/caddy/conf.d/admin.caddy.example \
+            "deploy-target:${{ env.DEPLOY_PATH }}/infra/caddy/conf.d/admin.caddy.example"
 
       - name: Обновить сервисы
         env:
-          DEPLOY_HOST: ${{ secrets.MAX_MINI_APP_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.MAX_MINI_APP_DEPLOY_USER }}
           IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
         run: |
-          ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" bash -euo pipefail <<REMOTE
+          ssh deploy-target bash -euo pipefail <<REMOTE
           cd ${{ env.DEPLOY_PATH }}
 
           if [ ! -f .env ]; then
